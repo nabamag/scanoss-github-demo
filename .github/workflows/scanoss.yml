@@ -1,1 +1,18 @@
 
+name: ScanOSS Test
+
+on:
+  push:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Show repository files
+        run: |
+          echo "Repository has been checked out"
+          ls -la
