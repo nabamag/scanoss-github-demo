@@ -70,6 +70,8 @@ jobs:
       - name: Install Crypto Finder
         run: |
           go install github.com/scanoss/crypto-finder/cmd/crypto-finder@latest
+          echo "$HOME/go/bin" >> "$GITHUB_PATH"
+          ls -l "$HOME/go/bin/crypto-finder"
 
       - name: Check Crypto Finder version
         run: |
