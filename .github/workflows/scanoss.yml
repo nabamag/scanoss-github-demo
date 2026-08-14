@@ -1,14 +1,14 @@
-
-name: ScanOSS Test
+name: ScanOSS SBOM Scan
 
 on:
   push:
 
 jobs:
-  test:
+  scanoss:
     runs-on: ubuntu-latest
 
     steps:
+
       - name: Checkout repository
         uses: actions/checkout@v6
 
@@ -16,3 +16,32 @@ jobs:
         run: |
           echo "Repository has been checked out"
           ls -la
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install ScanOSS
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install scanoss==1.54.2
+
+      - name: Check ScanOSS version
+        run: |
+          scanoss-py --version
+
+      - name: Run ScanOSS and generate CycloneDX SBOM
+        env:
+          SCANOSS_API_KEY: ${{ secrets.SCANOSS_API_KEY }}
+        run: |
+          scanoss-py scan . \
+            --format cyclonedx \
+            --key "$SCANOSS_API_KEY" \
+            -o scanoss-sbom.json
+
+      - name: Upload CycloneDX SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: scanoss-cyclonedx-sbom
+          path: scanoss-sbom.json
