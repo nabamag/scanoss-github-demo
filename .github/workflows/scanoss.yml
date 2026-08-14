@@ -26,6 +26,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install scanoss==1.54.2
+          python -m pip install scancode-toolkit
 
       - name: Check ScanOSS version
         run: |
@@ -36,6 +37,7 @@ jobs:
           SCANOSS_API_KEY: ${{ secrets.SCANOSS_API_KEY }}
         run: |
           scanoss-py scan . \
+            --dependencies \
             --format cyclonedx \
             --key "$SCANOSS_API_KEY" \
             -o scanoss-sbom.json
