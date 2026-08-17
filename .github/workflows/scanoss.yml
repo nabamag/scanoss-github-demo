@@ -1,98 +1,32 @@
-name: ScanOSS SBOM and CBOM Scan
+- name: Set up Go
+  uses: actions/setup-go@v6
+  with:
+    go-version: "1.25"
 
-on:
-  push:
+- name: Install OpenGrep
+  run: |
+    curl -fsSL https://raw.githubusercontent.com/opengrep/opengrep/v1.12.1/install.sh | bash
+    echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-jobs:
-  scanoss:
-    runs-on: ubuntu-latest
+- name: Check OpenGrep version
+  run: |
+    opengrep --version
 
-    steps:
+- name: Install Crypto Finder
+  run: |
+    go install github.com/scanoss/crypto-finder/cmd/crypto-finder@latest
+    echo "$HOME/go/bin" >> "$GITHUB_PATH"
+    ls -l "$HOME/go/bin/crypto-finder"
 
-      - name: Checkout repository
-        uses: actions/checkout@v6
+- name: Check Crypto Finder version
+  run: |
+    crypto-finder version
 
-      - name: Show repository files
-        run: |
-          echo "Repository has been checked out"
-          ls -la
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.11"
-
-      - name: Install ScanOSS
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install scanoss==1.54.2
-          python -m pip install scancode-toolkit
-
-      - name: Check ScanOSS version
-        run: |
-          scanoss-py --version
-
-      - name: Run ScanOSS
-        env:
-          SCANOSS_API_KEY: ${{ secrets.SCANOSS_API_KEY }}
-        run: |
-          scanoss-py scan . \
-            --dependencies \
-            --key "$SCANOSS_API_KEY" \
-            -o scanoss-results.json
-
-      - name: Convert ScanOSS results to CycloneDX
-        run: |
-          scanoss-py convert \
-            --input scanoss-results.json \
-            --format cyclonedx \
-            --output scanoss-sbom-cyclonedx.json
-
-      - name: Convert ScanOSS results to SPDX Lite
-        run: |
-          scanoss-py convert \
-            --input scanoss-results.json \
-            --format spdxlite \
-            --output scanoss-sbom-spdx.json
-
-      - name: Convert ScanOSS results to CSV
-        run: |
-          scanoss-py convert \
-            --input scanoss-results.json \
-            --format csv \
-            --output scanoss-results.csv
-
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version: "1.25"
-
-      - name: Install Crypto Finder
-        run: |
-          go install github.com/scanoss/crypto-finder/cmd/crypto-finder@latest
-          echo "$HOME/go/bin" >> "$GITHUB_PATH"
-          ls -l "$HOME/go/bin/crypto-finder"
-
-      - name: Check Crypto Finder version
-        run: |
-          crypto-finder version
-
-      - name: Run Crypto Finder and generate CBOM
-        env:
-          SCANOSS_API_KEY: ${{ secrets.SCANOSS_API_KEY }}
-        run: |
-          crypto-finder scan \
-            --format cyclonedx \
-            --output scanoss-cbom.json \
-            .
-
-      - name: Upload SCANOSS reports and SBOMs
-        uses: actions/upload-artifact@v4
-        with:
-          name: scanoss-reports
-          path: |
-            scanoss-results.json
-            scanoss-sbom-cyclonedx.json
-            scanoss-sbom-spdx.json
-            scanoss-results.csv
-            scanoss-cbom.json
+- name: Run Crypto Finder and generate CBOM
+  env:
+    SCANOSS_API_KEY: ${{ secrets.SCANOSS_API_KEY }}
+  run: |
+    crypto-finder scan \
+      --format cyclonedx \
+      --output scanoss-cbom.json \
+      .
