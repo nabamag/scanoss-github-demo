@@ -93,6 +93,7 @@ jobs:
         run: |
           crypto-finder scan \
             --verbose \
+            --scan-dependencies \
             --format cyclonedx \
             --output scanoss-cbom.json \
             .
