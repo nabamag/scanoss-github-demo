@@ -70,7 +70,8 @@ jobs:
       - name: Install OpenGrep
         run: |
           curl -fsSL https://raw.githubusercontent.com/opengrep/opengrep/v1.12.1/install.sh | bash
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.opengrep/cli/latest" >> "$GITHUB_PATH"
+          ls -l "$HOME/.opengrep/cli/latest/opengrep"
 
       - name: Check OpenGrep version
         run: |
