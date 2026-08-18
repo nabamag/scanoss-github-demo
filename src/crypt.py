@@ -8,4 +8,4 @@ encrypted = cipher.encrypt(message)
 
 print(encrypted)
 print("Crypto Finder test")
-print("new test")
+print("modified")
