@@ -7,3 +7,4 @@ message = b"Hello SCANOSS"
 encrypted = cipher.encrypt(message)
 
 print(encrypted)
+print("Crypto Finder test")
