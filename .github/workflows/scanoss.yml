@@ -17,6 +17,34 @@ jobs:
           echo "Repository has been checked out"
           ls -la
 
+      - name: Show changed files in triggering commit
+        run: |
+          echo "Commit SHA: $GITHUB_SHA"
+
+          echo "Commit message:"
+          git log -1 --pretty=%B "$GITHUB_SHA"
+
+          echo ""
+          echo "Changed files:"
+          echo "----------------------------------------"
+
+          git diff-tree \
+            --no-commit-id \
+            --name-status \
+            -r \
+            --root \
+            "$GITHUB_SHA" | tee changed-files.txt
+
+          echo "----------------------------------------"
+
+          echo ""
+          echo "Contents of changed-files.txt:"
+          cat changed-files.txt
+
+          echo ""
+          echo "Checking that changed-files.txt exists:"
+          ls -lh changed-files.txt
+
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
@@ -108,3 +136,4 @@ jobs:
             scanoss-sbom-spdx.json
             scanoss-results.csv
             scanoss-cbom.json
+            changed-files.txt
