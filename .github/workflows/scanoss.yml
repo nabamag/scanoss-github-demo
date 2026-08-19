@@ -78,6 +78,15 @@ jobs:
             --format cyclonedx \
             --output scanoss-sbom-cyclonedx.json
 
+      - name: Scan SBOM for vulnerabilities
+        env:
+          SCANOSS_API_KEY: ${{ secrets.SCANOSS_API_KEY }}
+        run: |
+          scanoss-py comp vulns \
+            --key "$SCANOSS_API_KEY" \
+            --input scanoss-sbom-cyclonedx.json \
+            --output vulnerabilities.json
+
       - name: Convert ScanOSS results to SPDX Lite
         run: |
           scanoss-py convert \
@@ -137,5 +146,6 @@ jobs:
             scanoss-sbom-cyclonedx.json
             scanoss-sbom-spdx.json
             scanoss-results.csv
+            vulnerabilities.json
             scanoss-cbom.json
             changed-files.txt
