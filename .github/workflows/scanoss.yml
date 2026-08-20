@@ -76,6 +76,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install scanoss==1.54.2
+          python -m pip install scancode-toolkit
 
       # =========================================================
       # 6. Check ScanOSS version
