@@ -1,4 +1,4 @@
-name: ScanOSS SBOM and CBOM Scan
+name: ScanOSS SBOM Scan
 
 on:
   push:
@@ -9,20 +9,34 @@ jobs:
 
     steps:
 
+      # ---------------------------------------------------------
+      # 1. Checkout repository
+      # ---------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
+      # ---------------------------------------------------------
+      # 2. Show repository files
+      # ---------------------------------------------------------
       - name: Show repository files
         run: |
           echo "Repository has been checked out"
+          echo "----------------------------------------"
           ls -la
+          echo "----------------------------------------"
+          echo "Source files:"
+          find . -maxdepth 3 -type f | sort
 
+      # ---------------------------------------------------------
+      # 3. Show files changed in the triggering commit
+      # ---------------------------------------------------------
       - name: Show changed files in triggering commit
         run: |
           echo "Commit SHA: $GITHUB_SHA"
 
+          echo ""
           echo "Commit message:"
           git log -1 --pretty=%B "$GITHUB_SHA"
 
@@ -47,21 +61,33 @@ jobs:
           echo "Checking that changed-files.txt exists:"
           ls -lh changed-files.txt
 
+      # ---------------------------------------------------------
+      # 4. Set up Python
+      # ---------------------------------------------------------
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
+      # ---------------------------------------------------------
+      # 5. Install ScanOSS
+      # ---------------------------------------------------------
       - name: Install ScanOSS
         run: |
           python -m pip install --upgrade pip
           python -m pip install scanoss==1.54.2
           python -m pip install scancode-toolkit
 
+      # ---------------------------------------------------------
+      # 6. Check ScanOSS version
+      # ---------------------------------------------------------
       - name: Check ScanOSS version
         run: |
           scanoss-py --version
 
+      # ---------------------------------------------------------
+      # 7. Run ScanOSS
+      # ---------------------------------------------------------
       - name: Run ScanOSS
         env:
           SCANOSS_API_KEY: ${{ secrets.SCANOSS_API_KEY }}
@@ -71,64 +97,203 @@ jobs:
             --key "$SCANOSS_API_KEY" \
             -o scanoss-results.json
 
-      - name: Convert ScanOSS results to CycloneDX
+      # ---------------------------------------------------------
+      # 8. Generate CycloneDX SBOM
+      # ---------------------------------------------------------
+      - name: Generate CycloneDX SBOM
         run: |
           scanoss-py convert \
             --input scanoss-results.json \
             --format cyclonedx \
             --output scanoss-sbom-cyclonedx.json
 
-      - name: Scan SBOM for vulnerabilities
-        env:
-          SCANOSS_API_KEY: ${{ secrets.SCANOSS_API_KEY }}
-        run: |
-          scanoss-py comp vulns \
-            --key "$SCANOSS_API_KEY" \
-            --input scanoss-sbom-cyclonedx.json \
-            --output vulnerabilities.json
-
-      - name: Convert ScanOSS results to SPDX Lite
+      # ---------------------------------------------------------
+      # 9. Generate SPDX Lite SBOM
+      # ---------------------------------------------------------
+      - name: Generate SPDX Lite SBOM
         run: |
           scanoss-py convert \
             --input scanoss-results.json \
             --format spdxlite \
             --output scanoss-sbom-spdx.json
 
-      - name: Convert ScanOSS results to CSV
+      # ---------------------------------------------------------
+      # 10. Generate CSV report
+      # ---------------------------------------------------------
+      - name: Generate CSV report
         run: |
           scanoss-py convert \
             --input scanoss-results.json \
             --format csv \
             --output scanoss-results.csv
 
+      # ---------------------------------------------------------
+      # 11. Scan CycloneDX SBOM for vulnerabilities
+      # ---------------------------------------------------------
+      - name: Scan SBOM for vulnerabilities
+        env:
+          SCANOSS_API_KEY: ${{ secrets.SCANOSS_API_KEY }}
+        run: |
+          scanoss-py comp vulns \
+            -i scanoss-sbom-cyclonedx.json \
+            -o vulnerabilities.json
+
+      # ---------------------------------------------------------
+      # 12. Generate human-readable vulnerability CSV
+      # ---------------------------------------------------------
+      - name: Generate vulnerability summary CSV
+        run: |
+          python - <<'PY'
+          import json
+          import csv
+
+          with open("vulnerabilities.json", "r", encoding="utf-8") as f:
+              data = json.load(f)
+
+          with open(
+              "vulnerability-summary.csv",
+              "w",
+              newline="",
+              encoding="utf-8"
+          ) as f:
+
+              writer = csv.writer(f)
+
+              writer.writerow([
+                  "Component",
+                  "Version",
+                  "CVE",
+                  "Severity",
+                  "CVSS",
+                  "EPSS Probability",
+                  "EPSS Percentile",
+                  "Source",
+                  "Published",
+                  "Summary",
+                  "URL"
+              ])
+
+              for component in data.get("components", []):
+
+                  component_name = component.get("purl", "")
+                  version = component.get("version", "")
+
+                  vulnerabilities = component.get(
+                      "vulnerabilities",
+                      []
+                  )
+
+                  for vulnerability in vulnerabilities:
+
+                      epss = vulnerability.get(
+                          "epss",
+                          {}
+                      )
+
+                      cvss = vulnerability.get(
+                          "cvss",
+                          []
+                      )
+
+                      if isinstance(cvss, list):
+                          cvss_value = ", ".join(
+                              map(str, cvss)
+                          )
+                      else:
+                          cvss_value = str(cvss)
+
+                      writer.writerow([
+                          component_name,
+                          version,
+                          vulnerability.get(
+                              "cve",
+                              vulnerability.get("id", "")
+                          ),
+                          vulnerability.get(
+                              "severity",
+                              ""
+                          ),
+                          cvss_value,
+                          epss.get(
+                              "probability",
+                              ""
+                          ),
+                          epss.get(
+                              "percentile",
+                              ""
+                          ),
+                          vulnerability.get(
+                              "source",
+                              ""
+                          ),
+                          vulnerability.get(
+                              "published",
+                              ""
+                          ),
+                          vulnerability.get(
+                              "summary",
+                              ""
+                          ),
+                          vulnerability.get(
+                              "url",
+                              ""
+                          )
+                      ])
+
+          print("Generated vulnerability-summary.csv")
+          PY
+
+      # ---------------------------------------------------------
+      # 13. Set up Go
+      # ---------------------------------------------------------
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
           go-version: "1.25"
 
+      # ---------------------------------------------------------
+      # 14. Install OpenGrep
+      # ---------------------------------------------------------
       - name: Install OpenGrep
         run: |
-          curl -fsSL https://raw.githubusercontent.com/opengrep/opengrep/v1.12.1/install.sh | bash
-          echo "$HOME/.opengrep/cli/latest" >> "$GITHUB_PATH"
-          ls -l "$HOME/.opengrep/cli/latest/opengrep"
+          curl -fsSL \
+            https://raw.githubusercontent.com/opengrep/opengrep/v1.12.1/install.sh \
+            | bash
 
+          echo "$HOME/.opengrep/cli/latest" >> "$GITHUB_PATH"
+
+          ls -l "$HOME/.opengrep/cli/latest"
+
+      # ---------------------------------------------------------
+      # 15. Check OpenGrep version
+      # ---------------------------------------------------------
       - name: Check OpenGrep version
         run: |
           opengrep --version
 
+      # ---------------------------------------------------------
+      # 16. Install Crypto Finder
+      # ---------------------------------------------------------
       - name: Install Crypto Finder
         run: |
-          go install github.com/scanoss/crypto-finder/cmd/crypto-finder@latest
+          go install \
+            github.com/scanoss/crypto-finder/cmd/crypto-finder@latest
+
           echo "$HOME/go/bin" >> "$GITHUB_PATH"
+
           ls -l "$HOME/go/bin/crypto-finder"
 
+      # ---------------------------------------------------------
+      # 17. Check Crypto Finder
+      # ---------------------------------------------------------
       - name: Check Crypto Finder version
         run: |
           crypto-finder version
 
+      # ---------------------------------------------------------
+      # 18. Generate CBOM
+      # ---------------------------------------------------------
       - name: Run Crypto Finder and generate CBOM
-        env:
-          SCANOSS_API_KEY: ${{ secrets.SCANOSS_API_KEY }}
         run: |
           crypto-finder scan \
             --verbose \
@@ -137,6 +302,9 @@ jobs:
             --output scanoss-cbom.json \
             .
 
+      # ---------------------------------------------------------
+      # 19. Upload all reports
+      # ---------------------------------------------------------
       - name: Upload SCANOSS reports and SBOMs
         uses: actions/upload-artifact@v4
         with:
@@ -147,5 +315,6 @@ jobs:
             scanoss-sbom-spdx.json
             scanoss-results.csv
             vulnerabilities.json
+            vulnerability-summary.csv
             scanoss-cbom.json
             changed-files.txt
