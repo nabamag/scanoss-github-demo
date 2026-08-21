@@ -2,35 +2,252 @@ name: ScanOSS SBOM Scan
 
 on:
   push:
+    branches:
+      - main
 
 jobs:
   scanoss:
     runs-on: ubuntu-latest
 
+    env:
+      SCANOSS_API_KEY: ${{ secrets.SCANOSS_API_KEY }}
+
     steps:
 
       # =========================================================
-      # 1. Checkout repository
+      # 1. CHECKOUT REPOSITORY
       # =========================================================
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+
       # =========================================================
-      # 2. Show repository files
+      # 2. SHOW REPOSITORY FILES
       # =========================================================
       - name: Show repository files
         run: |
-          echo "Repository has been checked out"
-          echo "----------------------------------------"
-          ls -la
-          echo "----------------------------------------"
           echo "Repository files:"
-          find . -maxdepth 3 -type f | sort
+          find . -maxdepth 3 -type f \
+            ! -path "./.git/*" \
+            -print
+
 
       # =========================================================
-      # 3. Show files changed in triggering commit
+      # 3. SET UP PYTHON
+      # =========================================================
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+
+      # =========================================================
+      # 4. INSTALL SCANOSS
+      # =========================================================
+      - name: Install ScanOSS
+        run: |
+          python -m pip install --upgrade pip
+          pip install scanoss
+
+
+      # =========================================================
+      # 5. CHECK SCANOSS VERSION
+      # =========================================================
+      - name: Check ScanOSS version
+        run: |
+          scanoss-py --version
+
+
+      # =========================================================
+      # 6. RUN SCANOSS
+      # =========================================================
+      - name: Run ScanOSS
+        run: |
+          scanoss-py scan \
+            -D \
+            -o scan-results.json \
+            .
+
+
+      # =========================================================
+      # 7. GENERATE CYCLONEDX SBOM
+      # =========================================================
+      - name: Generate CycloneDX SBOM
+        run: |
+          scanoss-py cnv \
+            --input scan-results.json \
+            --format cyclonedx \
+            --output scan-results-cyclonedx.json
+
+
+      # =========================================================
+      # 8. GENERATE SPDX-LITE SBOM
+      # =========================================================
+      - name: Generate SPDX-Lite SBOM
+        run: |
+          scanoss-py cnv \
+            --input scan-results.json \
+            --format spdxlite \
+            --output scan-results-spdxlite.json
+
+
+      # =========================================================
+      # 9. GENERATE CSV REPORT
+      # =========================================================
+      - name: Generate CSV report
+        run: |
+          scanoss-py cnv \
+            --input scan-results.json \
+            --format csv \
+            --output scan-results.csv
+
+
+      # =========================================================
+      # 10. SCAN SBOM FOR VULNERABILITIES
+      # =========================================================
+      - name: Scan SBOM for vulnerabilities
+        run: |
+          scanoss-py comp vulns \
+            -i scan-results-cyclonedx.json \
+            -o vulnerabilities.json
+
+
+      # =========================================================
+      # 11. GENERATE VULNERABILITY SUMMARY CSV
+      # =========================================================
+      - name: Generate vulnerability summary CSV
+        run: |
+          python - <<'PY'
+          import json
+          import csv
+
+          input_file = "vulnerabilities.json"
+          output_file = "vulnerability-summary.csv"
+
+          with open(input_file, "r", encoding="utf-8") as f:
+              data = json.load(f)
+
+          rows = []
+
+          for component in data.get("components", []):
+              purl = component.get("purl", "")
+              requirement = component.get("requirement", "")
+              version = component.get("version", "")
+
+              vulnerabilities = component.get("vulnerabilities", [])
+
+              if vulnerabilities:
+                  for vuln in vulnerabilities:
+                      rows.append({
+                          "purl": purl,
+                          "requirement": requirement,
+                          "version": version,
+                          "cve": vuln.get("cve", ""),
+                          "severity": vuln.get("severity", ""),
+                          "cvss": vuln.get("cvss", ""),
+                          "summary": vuln.get("summary", ""),
+                          "source": vuln.get("source", ""),
+                          "url": vuln.get("url", "")
+                      })
+              else:
+                  rows.append({
+                      "purl": purl,
+                      "requirement": requirement,
+                      "version": version,
+                      "cve": "",
+                      "severity": "",
+                      "cvss": "",
+                      "summary": "No vulnerabilities found",
+                      "source": "",
+                      "url": ""
+                  })
+
+          fieldnames = [
+              "purl",
+              "requirement",
+              "version",
+              "cve",
+              "severity",
+              "cvss",
+              "summary",
+              "source",
+              "url"
+          ]
+
+          with open(output_file, "w", newline="", encoding="utf-8") as f:
+              writer = csv.DictWriter(f, fieldnames=fieldnames)
+              writer.writeheader()
+              writer.writerows(rows)
+
+          print(f"Created {output_file}")
+          print(f"Rows: {len(rows)}")
+          PY
+
+
+      # =========================================================
+      # 12. SET UP GO
+      # =========================================================
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.25"
+
+
+      # =========================================================
+      # 13. INSTALL OPENGREP
+      # =========================================================
+      - name: Install OpenGrep
+        run: |
+          curl -fsSL \
+            https://raw.githubusercontent.com/opengrep/opengrep/v1.12.1/install.sh \
+            | bash
+
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+
+      # =========================================================
+      # 14. CHECK OPENGREP VERSION
+      # =========================================================
+      - name: Check OpenGrep version
+        run: |
+          opengrep --version
+
+
+      # =========================================================
+      # 15. INSTALL CRYPTO FINDER
+      # =========================================================
+      - name: Install Crypto Finder
+        run: |
+          go install github.com/scanoss/crypto-finder/cmd/crypto-finder@latest
+
+          echo "$HOME/go/bin" >> "$GITHUB_PATH"
+
+          ls -l "$HOME/go/bin/crypto-finder"
+
+
+      # =========================================================
+      # 16. CHECK CRYPTO FINDER VERSION
+      # =========================================================
+      - name: Check Crypto Finder version
+        run: |
+          crypto-finder --version
+
+
+      # =========================================================
+      # 17. RUN CRYPTO FINDER AND GENERATE CBOM
+      # =========================================================
+      - name: Run Crypto Finder and generate CBOM
+        run: |
+          crypto-finder scan \
+            --format cyclonedx \
+            --output scanoss-cbom.json \
+            .
+
+
+      # =========================================================
+      # 18. SHOW CHANGED FILES
       # =========================================================
       - name: Show changed files in triggering commit
         run: |
@@ -38,6 +255,8 @@ jobs:
 
           echo ""
           echo "Commit message:"
+          echo "----------------------------------------"
+
           git log -1 --pretty=%B "$GITHUB_SHA"
 
           echo ""
@@ -59,284 +278,374 @@ jobs:
 
           echo ""
           echo "Checking that changed-files.txt exists:"
-          ls -lh changed-files.txt
+          ls -l changed-files.txt
+
 
       # =========================================================
-      # 4. Set up Python
+      # 19. GENERATE CONSOLIDATED JSON REPORT
       # =========================================================
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.11"
-
-      # =========================================================
-      # 5. Install ScanOSS
-      # =========================================================
-      - name: Install ScanOSS
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install scanoss==1.54.2
-          python -m pip install scancode-toolkit
-
-      # =========================================================
-      # 6. Check ScanOSS version
-      # =========================================================
-      - name: Check ScanOSS version
-        run: |
-          scanoss-py --version
-
-      # =========================================================
-      # 7. Run ScanOSS
-      # =========================================================
-      - name: Run ScanOSS
-        env:
-          SCANOSS_API_KEY: ${{ secrets.SCANOSS_API_KEY }}
-        run: |
-          scanoss-py scan . \
-            --dependencies \
-            --key "$SCANOSS_API_KEY" \
-            -o scanoss-results.json
-
-      # =========================================================
-      # 8. Generate CycloneDX SBOM
-      # =========================================================
-      - name: Generate CycloneDX SBOM
-        run: |
-          scanoss-py convert \
-            --input scanoss-results.json \
-            --format cyclonedx \
-            --output scanoss-sbom-cyclonedx.json
-
-      # =========================================================
-      # 9. Generate SPDX Lite SBOM
-      # =========================================================
-      - name: Generate SPDX Lite SBOM
-        run: |
-          scanoss-py convert \
-            --input scanoss-results.json \
-            --format spdxlite \
-            --output scanoss-sbom-spdx.json
-
-      # =========================================================
-      # 10. Generate CSV report
-      # =========================================================
-      - name: Generate CSV report
-        run: |
-          scanoss-py convert \
-            --input scanoss-results.json \
-            --format csv \
-            --output scanoss-results.csv
-
-      # =========================================================
-      # 11. Scan SBOM for vulnerabilities
-      # =========================================================
-      - name: Scan SBOM for vulnerabilities
-        env:
-          SCANOSS_API_KEY: ${{ secrets.SCANOSS_API_KEY }}
-        run: |
-          scanoss-py comp vulns \
-            -i scanoss-sbom-cyclonedx.json \
-            -o vulnerabilities.json
-
-      # =========================================================
-      # 12. Generate vulnerability CSV
-      # =========================================================
-      - name: Generate vulnerability summary CSV
+      - name: Generate consolidated JSON report
+        if: always()
         run: |
           python - <<'PY'
           import json
-          import csv
+          import os
+          from datetime import datetime, timezone
+
+          def load_json(filename, default):
+              try:
+                  with open(filename, "r", encoding="utf-8") as f:
+                      return json.load(f)
+              except Exception as e:
+                  print(f"Could not read {filename}: {e}")
+                  return default
+
+          def load_changed_files():
+              files = []
+
+              try:
+                  with open("changed-files.txt", "r", encoding="utf-8") as f:
+                      for line in f:
+                          line = line.strip()
+
+                          if not line:
+                              continue
+
+                          parts = line.split("\t", 1)
+
+                          if len(parts) == 2:
+                              files.append({
+                                  "status": parts[0],
+                                  "file": parts[1]
+                              })
+                          else:
+                              files.append({
+                                  "status": "",
+                                  "file": parts[0]
+                              })
+
+              except Exception as e:
+                  print(f"Could not read changed-files.txt: {e}")
+
+              return files
+
+          scan_results = load_json("scan-results.json", {})
+          cyclonedx = load_json("scan-results-cyclonedx.json", {})
+          spdxlite = load_json("scan-results-spdxlite.json", {})
+          vulnerabilities = load_json("vulnerabilities.json", {})
+          cbom = load_json("scanoss-cbom.json", {})
+
+          changed_files = load_changed_files()
+
+          vulnerability_findings = []
+
+          for component in vulnerabilities.get("components", []):
+              for vuln in component.get("vulnerabilities", []):
+                  vulnerability_findings.append({
+                      "purl": component.get("purl", ""),
+                      "requirement": component.get("requirement", ""),
+                      "version": component.get("version", ""),
+                      "cve": vuln.get("cve", ""),
+                      "severity": vuln.get("severity", ""),
+                      "cvss": vuln.get("cvss", ""),
+                      "summary": vuln.get("summary", ""),
+                      "source": vuln.get("source", ""),
+                      "url": vuln.get("url", "")
+                  })
+
+          crypto_assets = []
+
+          for component in cbom.get("components", []):
+              if component.get("type") == "cryptographic-asset":
+                  crypto_assets.append({
+                      "name": component.get("name", ""),
+                      "bom_ref": component.get("bom-ref", ""),
+                      "evidence": component.get("evidence", {})
+                  })
+
+          oss_components = []
+
+          for component in cyclonedx.get("components", []):
+              oss_components.append({
+                  "type": component.get("type", ""),
+                  "group": component.get("group", ""),
+                  "name": component.get("name", ""),
+                  "version": component.get("version", ""),
+                  "purl": component.get("purl", ""),
+                  "licenses": component.get("licenses", [])
+              })
+
+          report = {
+              "report": {
+                  "name": "SCANOSS Consolidated Report",
+                  "generated_at": datetime.now(timezone.utc).isoformat()
+              },
+
+              "repository": {
+                  "name": os.environ.get("GITHUB_REPOSITORY", ""),
+                  "branch": os.environ.get("GITHUB_REF_NAME", ""),
+                  "commit_sha": os.environ.get("GITHUB_SHA", ""),
+                  "commit_message": os.environ.get("GITHUB_SHA", "")
+              },
+
+              "changed_files": changed_files,
+
+              "summary": {
+                  "changed_files": len(changed_files),
+                  "oss_components": len(oss_components),
+                  "vulnerabilities": len(vulnerability_findings),
+                  "cryptographic_assets": len(crypto_assets)
+              },
+
+              "oss_components": oss_components,
+
+              "vulnerabilities": vulnerability_findings,
+
+              "cryptographic_assets": crypto_assets,
+
+              "reports": {
+                  "scan_results": "scan-results.json",
+                  "cyclonedx_sbom": "scan-results-cyclonedx.json",
+                  "spdx_lite_sbom": "scan-results-spdxlite.json",
+                  "scanoss_csv": "scan-results.csv",
+                  "vulnerability_report": "vulnerabilities.json",
+                  "vulnerability_csv": "vulnerability-summary.csv",
+                  "cbom": "scanoss-cbom.json",
+                  "changed_files": "changed-files.txt"
+              }
+          }
 
           with open(
-              "vulnerabilities.json",
-              "r",
+              "scanoss-consolidated-report.json",
+              "w",
               encoding="utf-8"
           ) as f:
-              data = json.load(f)
+              json.dump(report, f, indent=2)
+
+          print("Created scanoss-consolidated-report.json")
+
+          print("")
+          print("Consolidated report summary:")
+          print(f"Changed files: {len(changed_files)}")
+          print(f"OSS components: {len(oss_components)}")
+          print(f"Vulnerabilities: {len(vulnerability_findings)}")
+          print(f"Cryptographic assets: {len(crypto_assets)}")
+          PY
+
+
+      # =========================================================
+      # 20. GENERATE CONSOLIDATED CSV REPORT
+      # =========================================================
+      - name: Generate consolidated CSV report
+        if: always()
+        run: |
+          python - <<'PY'
+          import csv
+          import json
+
+          output_file = "scanoss-consolidated-report.csv"
+
+          def load_json(filename):
+              try:
+                  with open(filename, "r", encoding="utf-8") as f:
+                      return json.load(f)
+              except Exception:
+                  return {}
+
+          changed_files = []
+
+          try:
+              with open("changed-files.txt", "r", encoding="utf-8") as f:
+                  for line in f:
+                      line = line.strip()
+
+                      if not line:
+                          continue
+
+                      parts = line.split("\t", 1)
+
+                      if len(parts) == 2:
+                          changed_files.append({
+                              "status": parts[0],
+                              "file": parts[1]
+                          })
+                      else:
+                          changed_files.append({
+                              "status": "",
+                              "file": parts[0]
+                          })
+          except Exception:
+              pass
+
+          cyclonedx = load_json("scan-results-cyclonedx.json")
+          vulnerabilities = load_json("vulnerabilities.json")
+          cbom = load_json("scanoss-cbom.json")
+
+          rows = []
+
+          # -----------------------------------------------------
+          # Changed files
+          # -----------------------------------------------------
+          for item in changed_files:
+              rows.append({
+                  "record_type": "CHANGED_FILE",
+                  "file": item.get("file", ""),
+                  "status": item.get("status", ""),
+                  "component": "",
+                  "version": "",
+                  "purl": "",
+                  "license": "",
+                  "cve": "",
+                  "severity": "",
+                  "crypto_asset": "",
+                  "summary": ""
+              })
+
+          # -----------------------------------------------------
+          # OSS components
+          # -----------------------------------------------------
+          for component in cyclonedx.get("components", []):
+              licenses = []
+
+              for license_entry in component.get("licenses", []):
+                  license_data = license_entry.get("license", {})
+
+                  if license_data.get("id"):
+                      licenses.append(license_data["id"])
+
+                  elif license_data.get("name"):
+                      licenses.append(license_data["name"])
+
+              rows.append({
+                  "record_type": "OSS_COMPONENT",
+                  "file": "",
+                  "status": "",
+                  "component": component.get("name", ""),
+                  "version": component.get("version", ""),
+                  "purl": component.get("purl", ""),
+                  "license": "; ".join(licenses),
+                  "cve": "",
+                  "severity": "",
+                  "crypto_asset": "",
+                  "summary": ""
+              })
+
+          # -----------------------------------------------------
+          # Vulnerabilities
+          # -----------------------------------------------------
+          for component in vulnerabilities.get("components", []):
+              for vuln in component.get("vulnerabilities", []):
+                  rows.append({
+                      "record_type": "VULNERABILITY",
+                      "file": "",
+                      "status": "",
+                      "component": component.get("purl", ""),
+                      "version": component.get("version", ""),
+                      "purl": component.get("purl", ""),
+                      "license": "",
+                      "cve": vuln.get("cve", ""),
+                      "severity": vuln.get("severity", ""),
+                      "crypto_asset": "",
+                      "summary": vuln.get("summary", "")
+                  })
+
+          # -----------------------------------------------------
+          # Cryptographic assets
+          # -----------------------------------------------------
+          for component in cbom.get("components", []):
+              if component.get("type") == "cryptographic-asset":
+                  rows.append({
+                      "record_type": "CRYPTOGRAPHIC_ASSET",
+                      "file": "",
+                      "status": "",
+                      "component": "",
+                      "version": "",
+                      "purl": "",
+                      "license": "",
+                      "cve": "",
+                      "severity": "",
+                      "crypto_asset": component.get("name", ""),
+                      "summary": "Cryptographic asset detected by Crypto Finder"
+                  })
+
+          fieldnames = [
+              "record_type",
+              "file",
+              "status",
+              "component",
+              "version",
+              "purl",
+              "license",
+              "cve",
+              "severity",
+              "crypto_asset",
+              "summary"
+          ]
 
           with open(
-              "vulnerability-summary.csv",
+              output_file,
               "w",
               newline="",
               encoding="utf-8"
           ) as f:
+              writer = csv.DictWriter(
+                  f,
+                  fieldnames=fieldnames
+              )
 
-              writer = csv.writer(f)
+              writer.writeheader()
+              writer.writerows(rows)
 
-              writer.writerow([
-                  "Component",
-                  "Version",
-                  "CVE",
-                  "Severity",
-                  "CVSS",
-                  "EPSS Probability",
-                  "EPSS Percentile",
-                  "Source",
-                  "Published",
-                  "Modified",
-                  "Summary",
-                  "URL"
-              ])
-
-              for component in data.get("components", []):
-
-                  component_name = component.get(
-                      "purl",
-                      ""
-                  )
-
-                  version = component.get(
-                      "version",
-                      ""
-                  )
-
-                  vulnerabilities = component.get(
-                      "vulnerabilities",
-                      []
-                  )
-
-                  for vulnerability in vulnerabilities:
-
-                      epss = vulnerability.get(
-                          "epss",
-                          {}
-                      )
-
-                      cvss = vulnerability.get(
-                          "cvss",
-                          []
-                      )
-
-                      if isinstance(cvss, list):
-                          cvss_value = ", ".join(
-                              map(str, cvss)
-                          )
-                      else:
-                          cvss_value = str(cvss)
-
-                      writer.writerow([
-                          component_name,
-                          version,
-                          vulnerability.get(
-                              "cve",
-                              vulnerability.get(
-                                  "id",
-                                  ""
-                              )
-                          ),
-                          vulnerability.get(
-                              "severity",
-                              ""
-                          ),
-                          cvss_value,
-                          epss.get(
-                              "probability",
-                              ""
-                          ),
-                          epss.get(
-                              "percentile",
-                              ""
-                          ),
-                          vulnerability.get(
-                              "source",
-                              ""
-                          ),
-                          vulnerability.get(
-                              "published",
-                              ""
-                          ),
-                          vulnerability.get(
-                              "modified",
-                              ""
-                          ),
-                          vulnerability.get(
-                              "summary",
-                              ""
-                          ),
-                          vulnerability.get(
-                              "url",
-                              ""
-                          )
-                      ])
-
-          print("Generated vulnerability-summary.csv")
+          print(f"Created {output_file}")
+          print(f"Rows: {len(rows)}")
           PY
 
-      # =========================================================
-      # 13. Set up Go
-      # =========================================================
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version: "1.25"
 
       # =========================================================
-      # 14. Install OpenGrep
+      # 21. SHOW CONSOLIDATED REPORT SUMMARY
       # =========================================================
-      - name: Install OpenGrep
+      - name: Show consolidated report summary
+        if: always()
         run: |
-          curl -fsSL \
-            https://raw.githubusercontent.com/opengrep/opengrep/v1.12.1/install.sh \
-            | bash
+          echo "=============================================="
+          echo "SCANOSS CONSOLIDATED REPORT"
+          echo "=============================================="
 
-          echo "$HOME/.opengrep/cli/latest" >> "$GITHUB_PATH"
+          if [ -f scanoss-consolidated-report.json ]; then
+            cat scanoss-consolidated-report.json
+          else
+            echo "Consolidated JSON report was not generated."
+          fi
 
-          ls -l "$HOME/.opengrep/cli/latest"
+          echo ""
+          echo "=============================================="
+          echo "CONSOLIDATED CSV"
+          echo "=============================================="
 
-      # =========================================================
-      # 15. Check OpenGrep version
-      # =========================================================
-      - name: Check OpenGrep version
-        run: |
-          opengrep --version
+          if [ -f scanoss-consolidated-report.csv ]; then
+            cat scanoss-consolidated-report.csv
+          else
+            echo "Consolidated CSV report was not generated."
+          fi
 
-      # =========================================================
-      # 16. Install Crypto Finder
-      # =========================================================
-      - name: Install Crypto Finder
-        run: |
-          go install \
-            github.com/scanoss/crypto-finder/cmd/crypto-finder@latest
-
-          echo "$HOME/go/bin" >> "$GITHUB_PATH"
-
-          ls -l "$HOME/go/bin/crypto-finder"
 
       # =========================================================
-      # 17. Check Crypto Finder
+      # 22. UPLOAD ALL REPORTS AS ARTIFACT
       # =========================================================
-      - name: Check Crypto Finder version
-        run: |
-          crypto-finder --help
-
-      # =========================================================
-      # 18. Run Crypto Finder and generate CBOM
-      # =========================================================
-      - name: Run Crypto Finder and generate CBOM
-        env:
-          SCANOSS_API_KEY: ${{ secrets.SCANOSS_API_KEY }}
-        run: |
-          crypto-finder scan \
-            --api-key "$SCANOSS_API_KEY" \
-            --verbose \
-            --scan-dependencies \
-            --format cyclonedx \
-            --output scanoss-cbom.json \
-            .
-
-      # =========================================================
-      # 19. Upload all reports
-      # =========================================================
-      - name: Upload SCANOSS reports and SBOMs
+      - name: Upload ScanOSS reports and SBOMs
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: scanoss-reports
           path: |
-            scanoss-results.json
-            scanoss-sbom-cyclonedx.json
-            scanoss-sbom-spdx.json
-            scanoss-results.csv
+            scan-results.json
+            scan-results-cyclonedx.json
+            scan-results-spdxlite.json
+            scan-results.csv
             vulnerabilities.json
             vulnerability-summary.csv
             scanoss-cbom.json
             changed-files.txt
+            scanoss-consolidated-report.json
+            scanoss-consolidated-report.csv
+          if-no-files-found: warn
