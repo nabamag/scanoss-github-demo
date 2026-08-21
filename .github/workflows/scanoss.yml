@@ -259,7 +259,8 @@ jobs:
       # ---------------------------------------------------------
       - name: Check Crypto Finder version
         run: |
-          crypto-finder --version
+          which crypto-finder
+          crypto-finder --help
 
       # ---------------------------------------------------------
       # 20. Run Crypto Finder and generate CBOM
@@ -267,6 +268,7 @@ jobs:
       - name: Run Crypto Finder and generate CBOM
         run: |
           crypto-finder scan \
+            --format cyclonedx \
             --output scanoss-cbom.json \
             .
 
