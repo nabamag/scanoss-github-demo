@@ -266,6 +266,8 @@ jobs:
       # 20. Run Crypto Finder and generate CBOM
       # ---------------------------------------------------------
       - name: Run Crypto Finder and generate CBOM
+        env:
+          SCANOSS_API_KEY: ${{ secrets.SCANOSS_API_KEY }}
         run: |
           crypto-finder scan \
             --format cyclonedx \
