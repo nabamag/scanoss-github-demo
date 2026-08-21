@@ -233,13 +233,17 @@ jobs:
       - name: Install OpenGrep
         run: |
           curl -fsSL https://raw.githubusercontent.com/opengrep/opengrep/v1.12.1/install.sh | bash
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.opengrep/cli/latest" >> "$GITHUB_PATH"
 
       # ---------------------------------------------------------
       # 17. Check OpenGrep version
       # ---------------------------------------------------------
       - name: Check OpenGrep version
         run: |
+         echo "OpenGrep location:"
+          which opengrep
+
+         echo "OpenGrep version:"
           opengrep --version
 
       # ---------------------------------------------------------
