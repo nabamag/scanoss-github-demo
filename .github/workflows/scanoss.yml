@@ -79,21 +79,80 @@ jobs:
           git log -1 --pretty=%B "$GITHUB_SHA"
 
           echo ""
-          echo "Repository file status:"
-          echo "----------------------------------------"
+          echo "Creating repository-file-status.csv..."
 
-          git diff-tree \
-            --no-commit-id \
-            --name-status \
-            -r \
-            --root \
-            "$GITHUB_SHA" | tee repository-file-status.txt
+          python - <<'PY'
+          import csv
+          import subprocess
 
-          echo "----------------------------------------"
+          commit = subprocess.check_output(
+              ["git", "rev-parse", "HEAD"],
+              text=True
+          ).strip()
 
-          echo ""
-          echo "Contents of repository-file-status.txt:"
-          cat repository-file-status.txt
+          # Get all files currently tracked in the repository
+          all_files = subprocess.check_output(
+              ["git", "ls-files"],
+              text=True
+          ).splitlines()
+
+          # Get changed files in the triggering commit
+          changed_output = subprocess.check_output(
+              [
+                  "git", "diff-tree",
+                  "--no-commit-id",
+                  "--name-status",
+                  "-r",
+                  "--root",
+                  commit
+              ],
+              text=True
+          ).splitlines()
+
+          changed = {}
+
+          for line in changed_output:
+              parts = line.split("\t")
+
+              if len(parts) >= 2:
+                  status = parts[0]
+                  filename = parts[-1]
+                  changed[filename] = status
+
+          with open("repository-file-status.csv", "w", newline="") as f:
+              writer = csv.writer(f)
+
+              writer.writerow([
+                  "file",
+                  "status",
+                  "changed_in_triggering_commit"
+              ])
+
+              for filename in all_files:
+                  if filename in changed:
+                      writer.writerow([
+                          filename,
+                          changed[filename],
+                          "YES"
+                      ])
+                  else:
+                      writer.writerow([
+                          filename,
+                          "UNCHANGED",
+                          "NO"
+                      ])
+
+          print("")
+          print("Repository file status report:")
+          print("----------------------------------------")
+
+          with open("repository-file-status.csv") as f:
+              print(f.read())
+
+          print("----------------------------------------")
+          print(f"Total repository files: {len(all_files)}")
+          print(f"Files changed in triggering commit: {len(changed)}")
+          PY
 
       # ---------------------------------------------------------
       # 5. Install ScanOSS
