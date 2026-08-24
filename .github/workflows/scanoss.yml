@@ -18,10 +18,9 @@ jobs:
       # 1. Checkout repository
       # ---------------------------------------------------------
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
 
       # ---------------------------------------------------------
       # 2. Set up Python
@@ -74,88 +73,27 @@ jobs:
       # commit.
       # ---------------------------------------------------------
       - name: Create repository file status report
-        shell: bash
         run: |
-          python - <<'PY'
-          import csv
-          import subprocess
-
-          output_file = "repository-file-status.csv"
-
-          # Get all files currently tracked in the repository
-          tracked = subprocess.check_output(
-              ["git", "ls-files", "-z"],
-              text=False
-          ).decode("utf-8", errors="replace").split("\0")
-
-          tracked = [f for f in tracked if f]
-
-          # Get changed files from the triggering commit
-          changed = {}
-
-          result = subprocess.check_output(
-              [
-                  "git",
-                  "diff-tree",
-                  "--no-commit-id",
-                  "--name-status",
-                  "-r",
-                  "--root",
-                  "$GITHUB_SHA"
-              ],
-              shell=False,
-              text=True
-          )
-
-          for line in result.splitlines():
-              if not line.strip():
-                  continue
-
-              parts = line.split("\t", 1)
-
-              if len(parts) == 2:
-                  status, filename = parts
-                  changed[filename] = status
-
-          with open(
-              output_file,
-              "w",
-              newline="",
-              encoding="utf-8"
-          ) as f:
-
-              writer = csv.writer(f)
-
-              writer.writerow([
-                  "File",
-                  "Status"
-              ])
-
-              for filename in tracked:
-                  status = changed.get(
-                      filename,
-                      "UNCHANGED"
-                  )
-
-                  writer.writerow([
-                      filename,
-                      status
-                  ])
-
-          print(f"Created {output_file}")
-          print(f"Tracked files: {len(tracked)}")
-          print(
-              f"Changed files in current repository: "
-              f"{sum(1 for f in tracked if f in changed)}"
-          )
-          PY
+          echo "Commit SHA: $GITHUB_SHA"
+          echo "Commit message:"
+          git log -1 --pretty=%B "$GITHUB_SHA"
 
           echo ""
           echo "Repository file status:"
           echo "----------------------------------------"
-          cat repository-file-status.csv
+
+          git diff-tree \
+            --no-commit-id \
+            --name-status \
+            -r \
+            --root \
+            "$GITHUB_SHA" | tee repository-file-status.txt
+
           echo "----------------------------------------"
 
+          echo ""
+          echo "Contents of repository-file-status.txt:"
+          cat repository-file-status.txt
 
       # ---------------------------------------------------------
       # 5. Install ScanOSS
