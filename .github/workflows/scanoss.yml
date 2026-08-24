@@ -22,262 +22,22 @@ jobs:
         with:
           fetch-depth: 0
 
-      # ---------------------------------------------------------
-      # 2. Show repository files
-      # ---------------------------------------------------------
-      - name: Show repository files
-        run: |
-          echo "Repository files:"
-          find . -maxdepth 3 -type f \
-            ! -path './.git/*' \
-            -print
 
       # ---------------------------------------------------------
-      # 3. Set up Python
+      # 2. Set up Python
       # ---------------------------------------------------------
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: pip
+
 
       # ---------------------------------------------------------
-      # 4. Install ScanOSS
-      # ---------------------------------------------------------
-      - name: Install ScanOSS
-        run: |
-          python -m pip install --upgrade pip
-          pip install scanoss
-
-      # ---------------------------------------------------------
-      # 5. Check ScanOSS version
-      # ---------------------------------------------------------
-      - name: Check ScanOSS version
-        run: |
-          scanoss-py version
-
-      # ---------------------------------------------------------
-      # 6. Install ScanCode Toolkit
-      #
-      # REQUIRED because the ScanOSS scan below uses -D
-      # / --dependencies.
-      # ---------------------------------------------------------
-      - name: Install ScanCode Toolkit
-        run: |
-          pip install scancode-toolkit
-
-      # ---------------------------------------------------------
-      # 7. Check ScanCode version
-      # ---------------------------------------------------------
-      - name: Check ScanCode version
-        run: |
-          scancode --version
-
-      # ---------------------------------------------------------
-      # 8. Run ScanOSS
-      #
-      # -D = include dependency scanning
-      #
-      # The API key is supplied through the GitHub secret
-      # SCANOSS_API_KEY.
-      # ---------------------------------------------------------
-      - name: Run ScanOSS
-        env:
-          SCANOSS_API_KEY: ${{ secrets.SCANOSS_API_KEY }}
-        run: |
-          scanoss-py scan \
-            --dependencies \
-            -o scan-results.json \
-            . \
-            -hdr "x-api-key:${SCANOSS_API_KEY}"
-
-      # ---------------------------------------------------------
-      # 9. Generate CycloneDX SBOM
-      # ---------------------------------------------------------
-      - name: Generate CycloneDX SBOM
-        run: |
-          scanoss-py convert \
-            --input scan-results.json \
-            --format cyclonedx \
-            --output scanoss-cyclonedx.json
-
-      # ---------------------------------------------------------
-      # 10. Generate SPDX-Lite SBOM
-      # ---------------------------------------------------------
-      - name: Generate SPDX-Lite SBOM
-        run: |
-          scanoss-py convert \
-            --input scan-results.json \
-            --format spdxlite \
-            --output scanoss-spdx-lite.json
-
-      # ---------------------------------------------------------
-      # 11. Generate JSON report
-      #
-      # scan-results.json is already the native ScanOSS
-      # JSON output.
-      # ---------------------------------------------------------
-      - name: Generate JSON report
-        run: |
-          cp scan-results.json scanoss-json-report.json
-
-      # ---------------------------------------------------------
-      # 12. Generate CSV report
-      # ---------------------------------------------------------
-      - name: Generate CSV report
-        run: |
-          scanoss-py convert \
-            --input scan-results.json \
-            --format csv \
-            --output scanoss-report.csv
-
-      # ---------------------------------------------------------
-      # 13. Scan SBOM for vulnerabilities
-      # ---------------------------------------------------------
-      - name: Scan SBOM for vulnerabilities
-        env:
-          SCANOSS_API_KEY: ${{ secrets.SCANOSS_API_KEY }}
-        run: |
-          scanoss-py comp vulns \
-            -i scanoss-cyclonedx.json \
-            -o vulnerabilities.json \
-            -hdr "x-api-key:${SCANOSS_API_KEY}"
-
-      # ---------------------------------------------------------
-      # 14. Generate vulnerability summary CSV
-      # ---------------------------------------------------------
-      - name: Generate vulnerability summary CSV
-        run: |
-          python - <<'PY'
-          import json
-          import csv
-
-          input_file = "vulnerabilities.json"
-          output_file = "vulnerability-summary.csv"
-
-          try:
-              with open(input_file, "r", encoding="utf-8") as f:
-                  data = json.load(f)
-          except Exception as e:
-              print(f"Could not read vulnerability report: {e}")
-              data = {}
-
-          rows = []
-
-          components = data.get("components", [])
-
-          for component in components:
-              purl = component.get("purl", "")
-              requirement = component.get("requirement", "")
-              version = component.get("version", "")
-
-              vulnerabilities = component.get("vulnerabilities", [])
-
-              if vulnerabilities:
-                  for vuln in vulnerabilities:
-                      rows.append({
-                          "PURL": purl,
-                          "Requirement": requirement,
-                          "Version": version,
-                          "CVE": vuln.get("cve", ""),
-                          "Severity": vuln.get("severity", ""),
-                          "CVSS": vuln.get("cvss", ""),
-                          "EPSS": vuln.get("epss", ""),
-                          "Summary": vuln.get("summary", ""),
-                          "URL": vuln.get("url", "")
-                      })
-              else:
-                  rows.append({
-                      "PURL": purl,
-                      "Requirement": requirement,
-                      "Version": version,
-                      "CVE": "",
-                      "Severity": "",
-                      "CVSS": "",
-                      "EPSS": "",
-                      "Summary": "",
-                      "URL": ""
-                  })
-
-          fieldnames = [
-              "PURL",
-              "Requirement",
-              "Version",
-              "CVE",
-              "Severity",
-              "CVSS",
-              "EPSS",
-              "Summary",
-              "URL"
-          ]
-
-          with open(output_file, "w", newline="", encoding="utf-8") as f:
-              writer = csv.DictWriter(f, fieldnames=fieldnames)
-              writer.writeheader()
-              writer.writerows(rows)
-
-          print(f"Created {output_file}")
-          print(f"Rows written: {len(rows)}")
-          PY
-
-      # ---------------------------------------------------------
-      # 15. Set up Go
-      # ---------------------------------------------------------
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version: '1.25'
-
-      # ---------------------------------------------------------
-      # 16. Install OpenGrep
-      # ---------------------------------------------------------
-      - name: Install OpenGrep
-        run: |
-          curl -fsSL https://raw.githubusercontent.com/opengrep/opengrep/v1.12.1/install.sh | bash
-          echo "$HOME/.opengrep/cli/latest" >> "$GITHUB_PATH"
-
-      # ---------------------------------------------------------
-      # 17. Check OpenGrep version
-      # ---------------------------------------------------------
-      - name: Check OpenGrep version
-        run: |
-         echo "OpenGrep location:"
-          which opengrep
-
-         echo "OpenGrep version:"
-          opengrep --version
-
-      # ---------------------------------------------------------
-      # 18. Install Crypto Finder
-      # ---------------------------------------------------------
-      - name: Install Crypto Finder
-        run: |
-          go install github.com/scanoss/crypto-finder/cmd/crypto-finder@latest
-          echo "$HOME/go/bin" >> "$GITHUB_PATH"
-
-      # ---------------------------------------------------------
-      # 19. Check Crypto Finder version
-      # ---------------------------------------------------------
-      - name: Check Crypto Finder version
-        run: |
-          which crypto-finder
-          crypto-finder --help
-
-      # ---------------------------------------------------------
-      # 20. Run Crypto Finder and generate CBOM
-      # ---------------------------------------------------------
-      - name: Run Crypto Finder and generate CBOM
-        env:
-          SCANOSS_API_KEY: ${{ secrets.SCANOSS_API_KEY }}
-        run: |
-          crypto-finder scan \
-            --format cyclonedx \
-            --output scanoss-cbom.json \
-            .
-
-      # ---------------------------------------------------------
-      # 21. Show changed files in triggering commit
+      # 3. Identify changed files in triggering commit
       # ---------------------------------------------------------
       - name: Show changed files in triggering commit
+        shell: bash
         run: |
           echo "Commit SHA: $GITHUB_SHA"
 
@@ -303,17 +63,448 @@ jobs:
 
           echo ""
           echo "Checking that changed-files.txt exists:"
-          ls -l changed-files.txt
+          ls -lh changed-files.txt
+
+
+      # ---------------------------------------------------------
+      # 4. Create complete repository file inventory
+      #
+      # This lists EVERY tracked file in the repository and
+      # identifies whether it was changed by the triggering
+      # commit.
+      # ---------------------------------------------------------
+      - name: Create repository file status report
+        shell: bash
+        run: |
+          python - <<'PY'
+          import csv
+          import subprocess
+
+          output_file = "repository-file-status.csv"
+
+          # Get all files currently tracked in the repository
+          tracked = subprocess.check_output(
+              ["git", "ls-files", "-z"],
+              text=False
+          ).decode("utf-8", errors="replace").split("\0")
+
+          tracked = [f for f in tracked if f]
+
+          # Get changed files from the triggering commit
+          changed = {}
+
+          result = subprocess.check_output(
+              [
+                  "git",
+                  "diff-tree",
+                  "--no-commit-id",
+                  "--name-status",
+                  "-r",
+                  "--root",
+                  "$GITHUB_SHA"
+              ],
+              shell=False,
+              text=True
+          )
+
+          for line in result.splitlines():
+              if not line.strip():
+                  continue
+
+              parts = line.split("\t", 1)
+
+              if len(parts) == 2:
+                  status, filename = parts
+                  changed[filename] = status
+
+          with open(
+              output_file,
+              "w",
+              newline="",
+              encoding="utf-8"
+          ) as f:
+
+              writer = csv.writer(f)
+
+              writer.writerow([
+                  "File",
+                  "Status"
+              ])
+
+              for filename in tracked:
+                  status = changed.get(
+                      filename,
+                      "UNCHANGED"
+                  )
+
+                  writer.writerow([
+                      filename,
+                      status
+                  ])
+
+          print(f"Created {output_file}")
+          print(f"Tracked files: {len(tracked)}")
+          print(
+              f"Changed files in current repository: "
+              f"{sum(1 for f in tracked if f in changed)}"
+          )
+          PY
+
+          echo ""
+          echo "Repository file status:"
+          echo "----------------------------------------"
+          cat repository-file-status.csv
+          echo "----------------------------------------"
+
+
+      # ---------------------------------------------------------
+      # 5. Install ScanOSS
+      # ---------------------------------------------------------
+      - name: Install ScanOSS
+        run: |
+          python -m pip install --upgrade pip
+          pip install scanoss
+
+
+      # ---------------------------------------------------------
+      # 6. Check ScanOSS version
+      # ---------------------------------------------------------
+      - name: Check ScanOSS version
+        run: |
+          scanoss-py version
+
+
+      # ---------------------------------------------------------
+      # 7. Install ScanCode Toolkit
+      #
+      # Required because the ScanOSS scan uses dependency
+      # scanning.
+      # ---------------------------------------------------------
+      - name: Install ScanCode Toolkit
+        run: |
+          pip install scancode-toolkit
+
+
+      # ---------------------------------------------------------
+      # 8. Check ScanCode version
+      # ---------------------------------------------------------
+      - name: Check ScanCode version
+        run: |
+          scancode --version
+
+
+      # ---------------------------------------------------------
+      # 9. Run FULL ScanOSS scan
+      #
+      # IMPORTANT:
+      # The "." means the ENTIRE repository is scanned.
+      #
+      # This is intentionally NOT an incremental scan.
+      # Therefore unchanged files remain represented in the
+      # resulting SBOM/component inventory.
+      # ---------------------------------------------------------
+      - name: Run ScanOSS
+        env:
+          SCANOSS_API_KEY: ${{ secrets.SCANOSS_API_KEY }}
+        run: |
+          scanoss-py scan \
+            --dependencies \
+            -o scan-results.json \
+            . \
+            -hdr "x-api-key:${SCANOSS_API_KEY}"
+
+
+      # ---------------------------------------------------------
+      # 10. Generate CycloneDX SBOM
+      # ---------------------------------------------------------
+      - name: Generate CycloneDX SBOM
+        run: |
+          scanoss-py convert \
+            --input scan-results.json \
+            --format cyclonedx \
+            --output scanoss-cyclonedx.json
+
+
+      # ---------------------------------------------------------
+      # 11. Generate SPDX-Lite SBOM
+      # ---------------------------------------------------------
+      - name: Generate SPDX-Lite SBOM
+        run: |
+          scanoss-py convert \
+            --input scan-results.json \
+            --format spdxlite \
+            --output scanoss-spdx-lite.json
+
+
+      # ---------------------------------------------------------
+      # 12. Generate JSON report
+      #
+      # scan-results.json is the native ScanOSS JSON output.
+      # ---------------------------------------------------------
+      - name: Generate JSON report
+        run: |
+          cp scan-results.json scanoss-json-report.json
+
+
+      # ---------------------------------------------------------
+      # 13. Generate CSV report
+      # ---------------------------------------------------------
+      - name: Generate CSV report
+        run: |
+          scanoss-py convert \
+            --input scan-results.json \
+            --format csv \
+            --output scanoss-report.csv
+
+
+      # ---------------------------------------------------------
+      # 14. Scan SBOM for vulnerabilities
+      # ---------------------------------------------------------
+      - name: Scan SBOM for vulnerabilities
+        env:
+          SCANOSS_API_KEY: ${{ secrets.SCANOSS_API_KEY }}
+        run: |
+          scanoss-py comp vulns \
+            -i scanoss-cyclonedx.json \
+            -o vulnerabilities.json \
+            -hdr "x-api-key:${SCANOSS_API_KEY}"
+
+
+      # ---------------------------------------------------------
+      # 15. Generate vulnerability summary CSV
+      # ---------------------------------------------------------
+      - name: Generate vulnerability summary CSV
+        run: |
+          python - <<'PY'
+          import json
+          import csv
+
+          input_file = "vulnerabilities.json"
+          output_file = "vulnerability-summary.csv"
+
+          try:
+              with open(
+                  input_file,
+                  "r",
+                  encoding="utf-8"
+              ) as f:
+                  data = json.load(f)
+
+          except Exception as e:
+              print(
+                  f"Could not read vulnerability report: {e}"
+              )
+              data = {}
+
+          rows = []
+
+          components = data.get(
+              "components",
+              []
+          )
+
+          for component in components:
+
+              purl = component.get(
+                  "purl",
+                  ""
+              )
+
+              requirement = component.get(
+                  "requirement",
+                  ""
+              )
+
+              version = component.get(
+                  "version",
+                  ""
+              )
+
+              vulnerabilities = component.get(
+                  "vulnerabilities",
+                  []
+              )
+
+              if vulnerabilities:
+
+                  for vuln in vulnerabilities:
+
+                      rows.append({
+                          "PURL": purl,
+                          "Requirement": requirement,
+                          "Version": version,
+                          "CVE": vuln.get(
+                              "cve",
+                              ""
+                          ),
+                          "Severity": vuln.get(
+                              "severity",
+                              ""
+                          ),
+                          "CVSS": vuln.get(
+                              "cvss",
+                              ""
+                          ),
+                          "EPSS": vuln.get(
+                              "epss",
+                              ""
+                          ),
+                          "Summary": vuln.get(
+                              "summary",
+                              ""
+                          ),
+                          "URL": vuln.get(
+                              "url",
+                              ""
+                          )
+                      })
+
+              else:
+
+                  rows.append({
+                      "PURL": purl,
+                      "Requirement": requirement,
+                      "Version": version,
+                      "CVE": "",
+                      "Severity": "",
+                      "CVSS": "",
+                      "EPSS": "",
+                      "Summary": "",
+                      "URL": ""
+                  })
+
+          fieldnames = [
+              "PURL",
+              "Requirement",
+              "Version",
+              "CVE",
+              "Severity",
+              "CVSS",
+              "EPSS",
+              "Summary",
+              "URL"
+          ]
+
+          with open(
+              output_file,
+              "w",
+              newline="",
+              encoding="utf-8"
+          ) as f:
+
+              writer = csv.DictWriter(
+                  f,
+                  fieldnames=fieldnames
+              )
+
+              writer.writeheader()
+              writer.writerows(rows)
+
+          print(
+              f"Created {output_file}"
+          )
+
+          print(
+              f"Rows written: {len(rows)}"
+          )
+          PY
+
+
+      # ---------------------------------------------------------
+      # 16. Set up Go
+      # ---------------------------------------------------------
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.25'
+
+
+      # ---------------------------------------------------------
+      # 17. Install OpenGrep
+      # ---------------------------------------------------------
+      - name: Install OpenGrep
+        run: |
+          curl -fsSL \
+            https://raw.githubusercontent.com/opengrep/opengrep/v1.12.1/install.sh \
+            | bash
+
+          echo "$HOME/.opengrep/cli/latest" >> "$GITHUB_PATH"
+
+
+      # ---------------------------------------------------------
+      # 18. Check OpenGrep version
+      # ---------------------------------------------------------
+      - name: Check OpenGrep version
+        run: |
+          echo "OpenGrep location:"
+          which opengrep
+
+          echo ""
+          echo "OpenGrep version:"
+          opengrep --version
+
+
+      # ---------------------------------------------------------
+      # 19. Install Crypto Finder
+      # ---------------------------------------------------------
+      - name: Install Crypto Finder
+        run: |
+          go install \
+            github.com/scanoss/crypto-finder/cmd/crypto-finder@latest
+
+          echo "$HOME/go/bin" >> "$GITHUB_PATH"
+
+
+      # ---------------------------------------------------------
+      # 20. Check Crypto Finder
+      #
+      # Crypto Finder does NOT support --version.
+      # --help is used to verify the installation.
+      # ---------------------------------------------------------
+      - name: Check Crypto Finder installation
+        run: |
+          which crypto-finder
+          crypto-finder --help
+
+
+      # ---------------------------------------------------------
+      # 21. Run Crypto Finder and generate FULL CBOM
+      #
+      # "." means the entire repository.
+      #
+      # SCANOSS_API_KEY is required so Crypto Finder can access
+      # its remote ruleset.
+      # ---------------------------------------------------------
+      - name: Run Crypto Finder and generate CBOM
+        env:
+          SCANOSS_API_KEY: ${{ secrets.SCANOSS_API_KEY }}
+        run: |
+          crypto-finder scan \
+            --format cyclonedx \
+            --output scanoss-cbom.json \
+            .
+
 
       # ---------------------------------------------------------
       # 22. Generate consolidated report
+      #
+      # This report contains:
+      #
+      # 1. ScanOSS component results
+      # 2. Vulnerability results
+      # 3. EVERY repository file
+      #    - Changed
+      #    - Unchanged
+      #
+      # Therefore the consolidated report explicitly shows the
+      # relationship between the current commit and the complete
+      # repository inventory.
       # ---------------------------------------------------------
       - name: Generate consolidated report
         run: |
           python - <<'PY'
           import json
           import csv
-          import os
 
           output_file = "consolidated-report.csv"
 
@@ -323,78 +514,163 @@ jobs:
           # ScanOSS component results
           # -----------------------------------------------------
           try:
-              with open("scan-results.json", "r", encoding="utf-8") as f:
+
+              with open(
+                  "scan-results.json",
+                  "r",
+                  encoding="utf-8"
+              ) as f:
+
                   scan_data = json.load(f)
 
-              for component in scan_data.get("components", []):
+              for component in scan_data.get(
+                  "components",
+                  []
+              ):
+
                   rows.append({
                       "Report Type": "ScanOSS",
-                      "Component": component.get("name", ""),
-                      "Version": component.get("version", ""),
-                      "PURL": component.get("purl", ""),
-                      "License": component.get("licenses", ""),
+                      "Component": component.get(
+                          "name",
+                          ""
+                      ),
+                      "Version": component.get(
+                          "version",
+                          ""
+                      ),
+                      "PURL": component.get(
+                          "purl",
+                          ""
+                      ),
+                      "License": component.get(
+                          "licenses",
+                          ""
+                      ),
                       "Vulnerability": "",
                       "Severity": "",
-                      "Changed File": ""
+                      "File Status": "",
+                      "File": ""
                   })
+
           except Exception as e:
-              print(f"Could not process ScanOSS results: {e}")
+
+              print(
+                  f"Could not process ScanOSS results: {e}"
+              )
+
 
           # -----------------------------------------------------
           # Vulnerability results
           # -----------------------------------------------------
           try:
-              with open("vulnerabilities.json", "r", encoding="utf-8") as f:
+
+              with open(
+                  "vulnerabilities.json",
+                  "r",
+                  encoding="utf-8"
+              ) as f:
+
                   vuln_data = json.load(f)
 
-              for component in vuln_data.get("components", []):
-                  for vuln in component.get("vulnerabilities", []):
+              for component in vuln_data.get(
+                  "components",
+                  []
+              ):
+
+                  for vuln in component.get(
+                      "vulnerabilities",
+                      []
+                  ):
+
                       rows.append({
                           "Report Type": "Vulnerability",
-                          "Component": component.get("purl", ""),
-                          "Version": component.get("version", ""),
-                          "PURL": component.get("purl", ""),
+                          "Component": component.get(
+                              "purl",
+                              ""
+                          ),
+                          "Version": component.get(
+                              "version",
+                              ""
+                          ),
+                          "PURL": component.get(
+                              "purl",
+                              ""
+                          ),
                           "License": "",
-                          "Vulnerability": vuln.get("cve", ""),
-                          "Severity": vuln.get("severity", ""),
-                          "Changed File": ""
+                          "Vulnerability": vuln.get(
+                              "cve",
+                              ""
+                          ),
+                          "Severity": vuln.get(
+                              "severity",
+                              ""
+                          ),
+                          "File Status": "",
+                          "File": ""
                       })
+
           except Exception as e:
-              print(f"Could not process vulnerability results: {e}")
+
+              print(
+                  f"Could not process vulnerability results: {e}"
+              )
+
 
           # -----------------------------------------------------
-          # Changed files
+          # COMPLETE repository file inventory
+          #
+          # This is the important addition.
+          # Every tracked file is included.
           # -----------------------------------------------------
           try:
-              with open("changed-files.txt", "r", encoding="utf-8") as f:
-                  changed_files = f.readlines()
 
-              for line in changed_files:
-                  line = line.strip()
+              with open(
+                  "repository-file-status.csv",
+                  "r",
+                  encoding="utf-8"
+              ) as f:
 
-                  if not line:
-                      continue
+                  reader = csv.DictReader(f)
 
-                  parts = line.split("\t", 1)
+                  for item in reader:
 
-                  if len(parts) == 2:
-                      status, filename = parts
-                  else:
-                      status = ""
-                      filename = parts[0]
+                      status = item.get(
+                          "Status",
+                          ""
+                      )
 
-                  rows.append({
-                      "Report Type": "Changed File",
-                      "Component": "",
-                      "Version": "",
-                      "PURL": "",
-                      "License": "",
-                      "Vulnerability": "",
-                      "Severity": status,
-                      "Changed File": filename
-                  })
+                      if status == "UNCHANGED":
+                          display_status = "UNCHANGED"
+                      else:
+                          display_status = (
+                              f"CHANGED ({status})"
+                          )
+
+                      rows.append({
+                          "Report Type":
+                              "Repository File",
+                          "Component": "",
+                          "Version": "",
+                          "PURL": "",
+                          "License": "",
+                          "Vulnerability": "",
+                          "Severity": "",
+                          "File Status":
+                              display_status,
+                          "File":
+                              item.get(
+                                  "File",
+                                  ""
+                              )
+                      })
+
           except Exception as e:
-              print(f"Could not process changed files: {e}")
+
+              print(
+                  f"Could not process repository "
+                  f"file inventory: {e}"
+              )
+
 
           # -----------------------------------------------------
           # Write consolidated report
@@ -407,17 +683,34 @@ jobs:
               "License",
               "Vulnerability",
               "Severity",
-              "Changed File"
+              "File Status",
+              "File"
           ]
 
-          with open(output_file, "w", newline="", encoding="utf-8") as f:
-              writer = csv.DictWriter(f, fieldnames=fieldnames)
+          with open(
+              output_file,
+              "w",
+              newline="",
+              encoding="utf-8"
+          ) as f:
+
+              writer = csv.DictWriter(
+                  f,
+                  fieldnames=fieldnames
+              )
+
               writer.writeheader()
               writer.writerows(rows)
 
-          print(f"Created {output_file}")
-          print(f"Total rows: {len(rows)}")
+          print(
+              f"Created {output_file}"
+          )
+
+          print(
+              f"Total rows: {len(rows)}"
+          )
           PY
+
 
       # ---------------------------------------------------------
       # 23. Display generated reports
@@ -425,6 +718,8 @@ jobs:
       - name: List generated reports
         run: |
           echo "Generated reports:"
+          echo "----------------------------------------"
+
           ls -lh \
             scan-results.json \
             scanoss-json-report.json \
@@ -435,7 +730,11 @@ jobs:
             vulnerability-summary.csv \
             scanoss-cbom.json \
             changed-files.txt \
+            repository-file-status.csv \
             consolidated-report.csv
+
+          echo "----------------------------------------"
+
 
       # ---------------------------------------------------------
       # 24. Upload all reports as one artifact
@@ -454,5 +753,6 @@ jobs:
             vulnerability-summary.csv
             scanoss-cbom.json
             changed-files.txt
+            repository-file-status.csv
             consolidated-report.csv
           if-no-files-found: error
