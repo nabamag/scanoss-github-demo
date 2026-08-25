@@ -502,177 +502,107 @@ jobs:
           python - <<'PY'
           import json
           import csv
+          import os
 
-          output_file = "consolidated-report.csv"
+          print("Generating consolidated report...")
 
-          rows = []
+          # ---------------------------------------------------------
+          # Load SCANOSS scan results
+          # ---------------------------------------------------------
+          scan_results = {}
 
-          # -----------------------------------------------------
-          # ScanOSS component results
-          # -----------------------------------------------------
-          try:
+          if os.path.exists("scan-results.json"):
+              with open("scan-results.json", "r", encoding="utf-8") as f:
+                  data = json.load(f)
 
-              with open(
-                  "scan-results.json",
-                  "r",
-                  encoding="utf-8"
-              ) as f:
+              print("Loaded scan-results.json")
 
-                  scan_data = json.load(f)
+              # SCANOSS JSON normally contains components under
+              # the "components" section or package information.
+              components = data.get("components", [])
 
-              for component in scan_data.get(
-                  "components",
-                  []
-              ):
+              for component in components:
+                  purl = component.get("purl", "")
+                  name = component.get("name", "")
+                  version = component.get("version", "")
 
-                  rows.append({
-                      "Report Type": "ScanOSS",
-                      "Component": component.get(
-                          "name",
-                          ""
-                      ),
-                      "Version": component.get(
-                          "version",
-                          ""
-                      ),
-                      "PURL": component.get(
-                          "purl",
-                          ""
-                      ),
-                      "License": component.get(
-                          "licenses",
-                          ""
-                      ),
-                      "Vulnerability": "",
-                      "Severity": "",
-                      "File Status": "",
-                      "File": ""
-                  })
+                  licenses = []
 
-          except Exception as e:
+                  # Try common license locations
+                  if isinstance(component.get("licenses"), list):
+                      for lic in component["licenses"]:
+                          if isinstance(lic, dict):
+                              license_obj = lic.get("license", {})
+                              if isinstance(license_obj, dict):
+                                  lic_id = license_obj.get("id")
+                                  lic_name = license_obj.get("name")
 
-              print(
-                  f"Could not process ScanOSS results: {e}"
-              )
+                                  if lic_id:
+                                      licenses.append(lic_id)
+                                  elif lic_name:
+                                      licenses.append(lic_name)
 
+                  license_value = ", ".join(licenses) if licenses else "UNKNOWN"
 
-          # -----------------------------------------------------
-          # Vulnerability results
-          # -----------------------------------------------------
-          try:
+                  # Store using PURL
+                  if purl:
+                      scan_results[purl] = {
+                          "name": name,
+                          "version": version,
+                          "license": license_value
+                      }
 
-              with open(
-                  "vulnerabilities.json",
-                  "r",
-                  encoding="utf-8"
-              ) as f:
+                  # Also store using name/version
+                  if name and version:
+                      scan_results[f"{name}|{version}"] = {
+                          "name": name,
+                          "version": version,
+                          "license": license_value
+                      }
 
+          # ---------------------------------------------------------
+          # Load vulnerability information
+          # ---------------------------------------------------------
+          vulnerabilities = []
+
+          if os.path.exists("vulnerabilities.json"):
+              with open("vulnerabilities.json", "r", encoding="utf-8") as f:
                   vuln_data = json.load(f)
 
-              for component in vuln_data.get(
-                  "components",
-                  []
-              ):
+              print("Loaded vulnerabilities.json")
 
-                  for vuln in component.get(
-                      "vulnerabilities",
-                      []
-                  ):
+              if isinstance(vuln_data, dict):
+                  vulnerabilities = vuln_data.get("components", [])
 
-                      rows.append({
-                          "Report Type": "Vulnerability",
-                          "Component": component.get(
-                              "purl",
-                              ""
-                          ),
-                          "Version": component.get(
-                              "version",
-                              ""
-                          ),
-                          "PURL": component.get(
-                              "purl",
-                              ""
-                          ),
-                          "License": "",
-                          "Vulnerability": vuln.get(
-                              "cve",
-                              ""
-                          ),
-                          "Severity": vuln.get(
-                              "severity",
-                              ""
-                          ),
-                          "File Status": "",
-                          "File": ""
-                      })
+          # ---------------------------------------------------------
+          # Load changed files
+          # ---------------------------------------------------------
+          changed_files = []
 
-          except Exception as e:
+          if os.path.exists("changed-files.txt"):
+              with open("changed-files.txt", "r", encoding="utf-8") as f:
+                  for line in f:
+                      line = line.strip()
 
-              print(
-                  f"Could not process vulnerability results: {e}"
-              )
+                      if not line:
+                          continue
 
+                      parts = line.split("\t", 1)
 
-          # -----------------------------------------------------
-          # COMPLETE repository file inventory
-          #
-          # This is the important addition.
-          # Every tracked file is included.
-          # -----------------------------------------------------
-          try:
-
-              with open(
-                  "repository-file-status.csv",
-                  "r",
-                  encoding="utf-8"
-              ) as f:
-
-                  reader = csv.DictReader(f)
-
-                  for item in reader:
-
-                      status = item.get(
-                          "Status",
-                          ""
-                      )
-
-                      if status == "UNCHANGED":
-                          display_status = "UNCHANGED"
+                      if len(parts) == 2:
+                          status, filename = parts
                       else:
-                          display_status = (
-                              f"CHANGED ({status})"
-                          )
+                          status = ""
+                          filename = parts[0]
 
-                      rows.append({
-                          "Report Type":
-                              "Repository File",
-                          "Component": "",
-                          "Version": "",
-                          "PURL": "",
-                          "License": "",
-                          "Vulnerability": "",
-                          "Severity": "",
-                          "File Status":
-                              display_status,
-                          "File":
-                              item.get(
-                                  "File",
-                                  ""
-                              )
-                      })
+                      changed_files.append((status, filename))
 
-          except Exception as e:
+          # ---------------------------------------------------------
+          # Create consolidated report
+          # ---------------------------------------------------------
+          output_file = "consolidated-report.csv"
 
-              print(
-                  f"Could not process repository "
-                  f"file inventory: {e}"
-              )
-
-
-          # -----------------------------------------------------
-          # Write consolidated report
-          # -----------------------------------------------------
-          fieldnames = [
+          headers = [
               "Report Type",
               "Component",
               "Version",
@@ -680,8 +610,7 @@ jobs:
               "License",
               "Vulnerability",
               "Severity",
-              "File Status",
-              "File"
+              "Changed File"
           ]
 
           with open(
@@ -691,21 +620,99 @@ jobs:
               encoding="utf-8"
           ) as f:
 
-              writer = csv.DictWriter(
-                  f,
-                  fieldnames=fieldnames
-              )
+              writer = csv.writer(f)
+              writer.writerow(headers)
 
-              writer.writeheader()
-              writer.writerows(rows)
+              # -----------------------------------------------------
+              # Vulnerability rows
+              # -----------------------------------------------------
+              for component in vulnerabilities:
 
-          print(
-              f"Created {output_file}"
-          )
+                  purl = component.get("purl", "")
+                  requirement = component.get("requirement", "")
+                  version = component.get("version", "")
+                  name = component.get("name", "")
 
-          print(
-              f"Total rows: {len(rows)}"
-          )
+                  # Some SCANOSS vulnerability reports use purl
+                  # rather than name.
+                  if not name and purl:
+                      name = purl
+
+                  # Find license information
+                  license_value = "UNKNOWN"
+
+                  if purl in scan_results:
+                      license_value = scan_results[purl]["license"]
+
+                  elif f"{name}|{version}" in scan_results:
+                      license_value = scan_results[
+                          f"{name}|{version}"
+                      ]["license"]
+
+                  component_vulns = component.get("vulnerabilities", [])
+
+                  if component_vulns:
+
+                      for vuln in component_vulns:
+
+                          cve = vuln.get(
+                              "cve",
+                              vuln.get("id", "")
+                          )
+
+                          severity = vuln.get(
+                              "severity",
+                              ""
+                          )
+
+                          writer.writerow([
+                              "Vulnerability",
+                              name,
+                              version or requirement,
+                              purl,
+                              license_value,
+                              cve,
+                              severity,
+                              ""
+                          ])
+
+                  else:
+
+                      writer.writerow([
+                          "Component",
+                          name,
+                          version or requirement,
+                          purl,
+                          license_value,
+                          "",
+                          "",
+                          ""
+                      ])
+
+              # -----------------------------------------------------
+              # Changed-file rows
+              # -----------------------------------------------------
+              for status, filename in changed_files:
+
+                  writer.writerow([
+                      "Changed File",
+                      "",
+                      "",
+                      "",
+                      "",
+                      "",
+                      status,
+                      filename
+                  ])
+
+          print("")
+          print("Consolidated report created:")
+          print(output_file)
+
+          print("")
+          print("License mapping entries:", len(scan_results))
+          print("Vulnerability entries:", len(vulnerabilities))
+          print("Changed files:", len(changed_files))
           PY
 
 
