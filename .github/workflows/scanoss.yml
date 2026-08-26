@@ -75,13 +75,35 @@ jobs:
       # ---------------------------------------------------------
       # 8. RUN SCANOSS
       # ---------------------------------------------------------
-      - name: Run ScanOSS
-        run: |
-          scanoss-py scan \
-            -o scan-results.json \
-            -D \
-            --threads 10 \
-            .
+       - name: Run ScanOSS
+         run: |
+          set -e
+
+          for attempt in 1 2 3; do
+            echo "========================================"
+            echo "ScanOSS attempt $attempt of 3"
+            echo "========================================"
+
+            if scanoss-py scan \
+              -o scan-results.json \
+              -D \
+              --threads 10 \
+              .; then
+
+              echo "ScanOSS completed successfully."
+              exit 0
+            fi
+
+            if [ "$attempt" -lt 3 ]; then
+              echo ""
+              echo "ScanOSS failed. Waiting 30 seconds before retry..."
+              sleep 30
+            fi
+          done
+
+          echo ""
+          echo "ScanOSS failed after 3 attempts."
+          exit 1
 
       # ---------------------------------------------------------
       # 9. GENERATE CYCLONEDX SBOM
