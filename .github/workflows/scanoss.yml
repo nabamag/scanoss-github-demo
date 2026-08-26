@@ -29,7 +29,6 @@ jobs:
           echo "----------------------------------------"
           find . -type f \
             -not -path './.git/*' \
-            -not -path './.github/*' \
             | sort
           echo "----------------------------------------"
 
@@ -50,14 +49,31 @@ jobs:
           pip install scanoss
 
       # ---------------------------------------------------------
-      # 5. CHECK SCANOSS VERSION
+      # 5. INSTALL SCANCODE TOOLKIT
+      #
+      # Required because ScanOSS is being run with -D
+      # for dependency scanning.
+      # ---------------------------------------------------------
+      - name: Install ScanCode Toolkit
+        run: |
+          pip install scancode-toolkit
+
+      # ---------------------------------------------------------
+      # 6. VERIFY SCANCODE
+      # ---------------------------------------------------------
+      - name: Check ScanCode
+        run: |
+          scancode --version
+
+      # ---------------------------------------------------------
+      # 7. CHECK SCANOSS
       # ---------------------------------------------------------
       - name: Check ScanOSS version
         run: |
           scanoss-py --version
 
       # ---------------------------------------------------------
-      # 6. RUN SCANOSS
+      # 8. RUN SCANOSS
       # ---------------------------------------------------------
       - name: Run ScanOSS
         run: |
@@ -68,7 +84,7 @@ jobs:
             .
 
       # ---------------------------------------------------------
-      # 7. GENERATE CYCLONEDX SBOM
+      # 9. GENERATE CYCLONEDX SBOM
       # ---------------------------------------------------------
       - name: Generate CycloneDX SBOM
         run: |
@@ -78,7 +94,7 @@ jobs:
             --output scanoss-cyclonedx.json
 
       # ---------------------------------------------------------
-      # 8. GENERATE SPDX-LITE SBOM
+      # 10. GENERATE SPDX-LITE SBOM
       # ---------------------------------------------------------
       - name: Generate SPDX-Lite SBOM
         run: |
@@ -88,14 +104,14 @@ jobs:
             --output scanoss-spdx-lite.json
 
       # ---------------------------------------------------------
-      # 9. GENERATE JSON REPORT
+      # 11. SAVE SCANOSS JSON REPORT
       # ---------------------------------------------------------
       - name: Generate JSON report
         run: |
           cp scan-results.json scanoss-json-report.json
 
       # ---------------------------------------------------------
-      # 10. GENERATE CSV REPORT
+      # 12. GENERATE CSV REPORT
       # ---------------------------------------------------------
       - name: Generate CSV report
         run: |
@@ -105,7 +121,7 @@ jobs:
             --output scanoss-report.csv
 
       # ---------------------------------------------------------
-      # 11. SCAN SBOM FOR VULNERABILITIES
+      # 13. SCAN FOR VULNERABILITIES
       # ---------------------------------------------------------
       - name: Scan SBOM for vulnerabilities
         run: |
@@ -114,7 +130,7 @@ jobs:
             -o vulnerabilities.json
 
       # ---------------------------------------------------------
-      # 12. GENERATE VULNERABILITY SUMMARY CSV
+      # 14. GENERATE VULNERABILITY SUMMARY CSV
       # ---------------------------------------------------------
       - name: Generate vulnerability summary CSV
         run: |
@@ -141,21 +157,45 @@ jobs:
               requirement = component.get("requirement", "")
               version = component.get("version", "")
 
-              vulnerabilities = component.get("vulnerabilities", [])
+              vulnerabilities = component.get(
+                  "vulnerabilities",
+                  []
+              )
 
               for vuln in vulnerabilities:
                   rows.append({
                       "Component": purl,
                       "Version": version,
                       "Requirement": requirement,
-                      "Vulnerability": vuln.get("id", vuln.get("cve", "")),
-                      "Severity": vuln.get("severity", ""),
-                      "Summary": vuln.get("summary", ""),
-                      "Source": vuln.get("source", ""),
-                      "URL": vuln.get("url", "")
+                      "Vulnerability": vuln.get(
+                          "id",
+                          vuln.get("cve", "")
+                      ),
+                      "Severity": vuln.get(
+                          "severity",
+                          ""
+                      ),
+                      "Summary": vuln.get(
+                          "summary",
+                          ""
+                      ),
+                      "Source": vuln.get(
+                          "source",
+                          ""
+                      ),
+                      "URL": vuln.get(
+                          "url",
+                          ""
+                      )
                   })
 
-          with open(output_file, "w", newline="", encoding="utf-8") as f:
+          with open(
+              output_file,
+              "w",
+              newline="",
+              encoding="utf-8"
+          ) as f:
+
               writer = csv.DictWriter(
                   f,
                   fieldnames=[
@@ -173,11 +213,14 @@ jobs:
               writer.writeheader()
               writer.writerows(rows)
 
-          print(f"Created {output_file} with {len(rows)} vulnerabilities")
+          print(
+              f"Created {output_file} "
+              f"with {len(rows)} vulnerabilities"
+          )
           PY
 
       # ---------------------------------------------------------
-      # 13. SET UP GO
+      # 15. SET UP GO
       # ---------------------------------------------------------
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -185,7 +228,7 @@ jobs:
           go-version: "1.25"
 
       # ---------------------------------------------------------
-      # 14. INSTALL OPENGREP
+      # 16. INSTALL OPENGREP
       # ---------------------------------------------------------
       - name: Install OpenGrep
         run: |
@@ -198,7 +241,7 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       # ---------------------------------------------------------
-      # 15. CHECK OPENGREP
+      # 17. CHECK OPENGREP
       # ---------------------------------------------------------
       - name: Check OpenGrep version
         run: |
@@ -206,24 +249,28 @@ jobs:
           opengrep --version
 
       # ---------------------------------------------------------
-      # 16. INSTALL CRYPTO FINDER
+      # 18. INSTALL CRYPTO FINDER
       # ---------------------------------------------------------
       - name: Install Crypto Finder
         run: |
-          go install github.com/scanoss/crypto-finder/cmd/crypto-finder@latest
+          go install \
+            github.com/scanoss/crypto-finder/cmd/crypto-finder@latest
+
           echo "$HOME/go/bin" >> "$GITHUB_PATH"
 
       # ---------------------------------------------------------
-      # 17. CHECK CRYPTO FINDER
+      # 19. CHECK CRYPTO FINDER
       # ---------------------------------------------------------
       - name: Check Crypto Finder
         run: |
           export PATH="$HOME/go/bin:$HOME/.local/bin:$PATH"
+
           crypto-finder --help > /dev/null
+
           echo "Crypto Finder installed successfully"
 
       # ---------------------------------------------------------
-      # 18. RUN CRYPTO FINDER AND GENERATE CBOM
+      # 20. GENERATE CBOM
       # ---------------------------------------------------------
       - name: Run Crypto Finder and generate CBOM
         run: |
@@ -235,7 +282,7 @@ jobs:
             .
 
       # ---------------------------------------------------------
-      # 19. SHOW CHANGED FILES IN TRIGGERING COMMIT
+      # 21. SHOW CHANGED FILES
       # ---------------------------------------------------------
       - name: Show changed files in triggering commit
         run: |
@@ -243,7 +290,9 @@ jobs:
 
           echo "Commit message:"
           echo "----------------------------------------"
+
           git log -1 --pretty=%B "$GITHUB_SHA"
+
           echo "----------------------------------------"
 
           echo ""
@@ -255,21 +304,19 @@ jobs:
             --name-status \
             -r \
             --root \
-            "$GITHUB_SHA" | tee changed-files.txt
+            "$GITHUB_SHA" \
+            | tee changed-files.txt
 
           echo "----------------------------------------"
 
           echo ""
           echo "Contents of changed-files.txt:"
+
           cat changed-files.txt
 
-          echo ""
-          echo "Checking that changed-files.txt exists:"
-          ls -l changed-files.txt
-
       # ---------------------------------------------------------
-      # 20. CREATE REPOSITORY FILE STATUS REPORT
-      #     CHANGED + UNCHANGED FILES
+      # 22. CREATE FULL REPOSITORY FILE STATUS
+      #     CHANGED + UNCHANGED
       # ---------------------------------------------------------
       - name: Create repository file status report
         run: |
@@ -280,7 +327,12 @@ jobs:
           changed_file_status = {}
 
           try:
-              with open("changed-files.txt", "r", encoding="utf-8") as f:
+              with open(
+                  "changed-files.txt",
+                  "r",
+                  encoding="utf-8"
+              ) as f:
+
                   for line in f:
                       line = line.strip()
 
@@ -292,15 +344,10 @@ jobs:
                       if len(parts) == 2:
                           status = parts[0].strip()
                           filename = parts[1].strip()
-                          changed_file_status[filename] = status
 
-                      elif len(parts) == 1:
-                          parts = line.split(None, 1)
-
-                          if len(parts) == 2:
-                              status = parts[0].strip()
-                              filename = parts[1].strip()
-                              changed_file_status[filename] = status
+                          changed_file_status[
+                              filename
+                          ] = status
 
           except FileNotFoundError:
               print("changed-files.txt not found")
@@ -335,7 +382,9 @@ jobs:
               for filename in repository_files:
 
                   if filename in changed_file_status:
-                      status = changed_file_status[filename]
+                      status = changed_file_status[
+                          filename
+                      ]
                   else:
                       status = "UNCHANGED"
 
@@ -349,20 +398,28 @@ jobs:
           print("----------------------------------------")
 
           for filename in repository_files:
+
               status = changed_file_status.get(
                   filename,
                   "UNCHANGED"
               )
 
-              print(f"{status}\t{filename}")
+              print(
+                  f"{status}\t{filename}"
+              )
 
           print("----------------------------------------")
-          print("Created repository-file-status.csv")
+
+          print(
+              "Created "
+              "repository-file-status.csv"
+          )
           PY
 
       # ---------------------------------------------------------
-      # 21. GENERATE CONSOLIDATED REPORT
-      #     INCLUDES LICENSE FROM SCANOSS JSON
+      # 23. GENERATE CONSOLIDATED REPORT
+      #     COMPONENT + LICENSE + VULNERABILITY
+      #     + CHANGED/UNCHANGED FILE
       # ---------------------------------------------------------
       - name: Generate consolidated report
         run: |
@@ -381,89 +438,129 @@ jobs:
           # Load ScanOSS JSON
           # -----------------------------------------------------
           try:
-              with open(SCAN_JSON, "r", encoding="utf-8") as f:
+              with open(
+                  SCAN_JSON,
+                  "r",
+                  encoding="utf-8"
+              ) as f:
+
                   scan_data = json.load(f)
+
           except Exception as e:
-              print(f"Could not load {SCAN_JSON}: {e}")
+              print(
+                  f"Could not load {SCAN_JSON}: {e}"
+              )
+
               scan_data = {}
 
           # -----------------------------------------------------
-          # Build component/license lookup
-          #
-          # IMPORTANT:
-          # ScanOSS license information is nested as:
-          #
-          # "licenses": [
-          #   {
-          #     "license": {
-          #       "id": "Apache-2.0"
-          #     }
-          #   }
-          # ]
+          # Component/license lookup
           # -----------------------------------------------------
           component_info = {}
 
           def extract_license(component):
-              licenses = component.get("licenses", [])
+
+              licenses = component.get(
+                  "licenses",
+                  []
+              )
 
               license_names = []
 
               if isinstance(licenses, list):
+
                   for item in licenses:
 
-                      if not isinstance(item, dict):
+                      if not isinstance(
+                          item,
+                          dict
+                      ):
                           continue
 
-                      license_info = item.get("license", {})
+                      license_info = item.get(
+                          "license",
+                          {}
+                      )
 
-                      if isinstance(license_info, dict):
-                          license_id = license_info.get("id")
+                      if isinstance(
+                          license_info,
+                          dict
+                      ):
+
+                          license_id = (
+                              license_info.get(
+                                  "id"
+                              )
+                          )
 
                           if license_id:
-                              license_names.append(str(license_id))
+                              license_names.append(
+                                  str(license_id)
+                              )
 
               if license_names:
-                  return ", ".join(dict.fromkeys(license_names))
+                  return ", ".join(
+                      dict.fromkeys(
+                          license_names
+                      )
+                  )
 
-              # Some ScanOSS structures may expose license information
-              # under other fields. Handle those without replacing
-              # the normal ScanOSS structure above.
-              direct_license = component.get("license")
+              direct_license = component.get(
+                  "license"
+              )
 
-              if isinstance(direct_license, str) and direct_license:
+              if isinstance(
+                  direct_license,
+                  str
+              ) and direct_license:
+
                   return direct_license
 
-              if isinstance(direct_license, dict):
-                  license_id = direct_license.get("id")
+              if isinstance(
+                  direct_license,
+                  dict
+              ):
+
+                  license_id = (
+                      direct_license.get(
+                          "id"
+                      )
+                  )
 
                   if license_id:
-                      return str(license_id)
+                      return str(
+                          license_id
+                      )
 
               return "UNKNOWN"
 
           # -----------------------------------------------------
-          # Recursively inspect JSON for component-like objects
+          # Recursively inspect ScanOSS JSON
           # -----------------------------------------------------
           def walk(value):
 
               if isinstance(value, dict):
 
-                  if (
-                      "purl" in value
-                      or "bom-ref" in value
-                      or "component" in value
-                  ):
+                  if "purl" in value:
 
-                      purl = value.get("purl", "")
+                      purl = value.get(
+                          "purl",
+                          ""
+                      )
 
                       if purl:
-                          component_info[purl] = {
+
+                          component_info[
+                              purl
+                          ] = {
                               "Component": purl,
                               "Version": value.get(
                                   "version",
                                   ""
                               ),
-                              "License": extract_license(value)
+                              "License": extract_license(
+                                  value
+                              )
                           }
 
                   for child in value.values():
@@ -477,13 +574,22 @@ jobs:
           walk(scan_data)
 
           # -----------------------------------------------------
-          # Load vulnerability JSON
+          # Load vulnerabilities
           # -----------------------------------------------------
           try:
-              with open(VULN_JSON, "r", encoding="utf-8") as f:
+              with open(
+                  VULN_JSON,
+                  "r",
+                  encoding="utf-8"
+              ) as f:
+
                   vuln_data = json.load(f)
+
           except Exception as e:
-              print(f"Could not load {VULN_JSON}: {e}")
+              print(
+                  f"Could not load {VULN_JSON}: {e}"
+              )
+
               vuln_data = {}
 
           rows = []
@@ -491,22 +597,35 @@ jobs:
           # -----------------------------------------------------
           # Vulnerability rows
           # -----------------------------------------------------
-          for component in vuln_data.get("components", []):
+          for component in vuln_data.get(
+              "components",
+              []
+          ):
 
-              purl = component.get("purl", "")
-              version = component.get("version", "")
-
-              license_value = component_info.get(
-                  purl,
-                  {}
-              ).get(
-                  "License",
-                  "UNKNOWN"
+              purl = component.get(
+                  "purl",
+                  ""
               )
 
-              vulnerabilities = component.get(
-                  "vulnerabilities",
-                  []
+              version = component.get(
+                  "version",
+                  ""
+              )
+
+              license_value = (
+                  component_info
+                  .get(purl, {})
+                  .get(
+                      "License",
+                      "UNKNOWN"
+                  )
+              )
+
+              vulnerabilities = (
+                  component.get(
+                      "vulnerabilities",
+                      []
+                  )
               )
 
               for vuln in vulnerabilities:
@@ -519,7 +638,10 @@ jobs:
                       license_value,
                       vuln.get(
                           "id",
-                          vuln.get("cve", "")
+                          vuln.get(
+                              "cve",
+                              ""
+                          )
                       ),
                       vuln.get(
                           "severity",
@@ -529,25 +651,36 @@ jobs:
                   ])
 
           # -----------------------------------------------------
-          # Component rows from ScanOSS JSON
+          # Component rows
           # -----------------------------------------------------
           for purl, info in component_info.items():
 
               rows.append([
                   "Component",
-                  info.get("Component", ""),
-                  info.get("Version", ""),
+                  info.get(
+                      "Component",
+                      ""
+                  ),
+                  info.get(
+                      "Version",
+                      ""
+                  ),
                   purl,
-                  info.get("License", "UNKNOWN"),
+                  info.get(
+                      "License",
+                      "UNKNOWN"
+                  ),
                   "",
                   "",
                   ""
               ])
 
           # -----------------------------------------------------
-          # Changed / unchanged files
+          # Changed + unchanged files
           # -----------------------------------------------------
-          if os.path.exists(STATUS_CSV):
+          if os.path.exists(
+              STATUS_CSV
+          ):
 
               with open(
                   STATUS_CSV,
@@ -584,7 +717,7 @@ jobs:
                       ])
 
           # -----------------------------------------------------
-          # Write consolidated report
+          # Write consolidated CSV
           # -----------------------------------------------------
           with open(
               OUTPUT,
@@ -609,8 +742,13 @@ jobs:
               writer.writerows(rows)
 
           print("")
-          print(f"Created {OUTPUT}")
-          print(f"Total rows: {len(rows)}")
+          print(
+              f"Created {OUTPUT}"
+          )
+
+          print(
+              f"Total rows: {len(rows)}"
+          )
 
           print("")
           print("License values detected:")
@@ -631,7 +769,7 @@ jobs:
           PY
 
       # ---------------------------------------------------------
-      # 22. LIST GENERATED REPORTS
+      # 24. LIST GENERATED REPORTS
       # ---------------------------------------------------------
       - name: List generated reports
         run: |
@@ -654,7 +792,7 @@ jobs:
           echo "----------------------------------------"
 
       # ---------------------------------------------------------
-      # 23. UPLOAD ALL SCANOSS REPORTS
+      # 25. UPLOAD ALL REPORTS
       # ---------------------------------------------------------
       - name: Upload ScanOSS reports and SBOMs
         uses: actions/upload-artifact@v4
