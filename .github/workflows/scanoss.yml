@@ -300,18 +300,17 @@ jobs:
       # SCANOSS vulnerability command.
       # ------------------------------------------------------------
       - name: Scan SBOM for vulnerabilities
-        continue-on-error: true
         run: |
-          echo "Scanning CycloneDX SBOM for vulnerabilities..."
-
-          scanoss-py comp vulns \
-            -i scanoss-cyclonedx.json \
-            -o vulnerabilities.json
-
-          echo ""
-          echo "Vulnerability report:"
-          ls -lh vulnerabilities.json || true
-
+            if [ ! -s scanoss-cyclonedx.json ]; then
+              echo "CycloneDX SBOM is empty or missing. Skipping vulnerability scan."
+              echo "No components are available for vulnerability analysis."
+              exit 0
+            fi
+        
+            echo "Scanning CycloneDX SBOM for vulnerabilities..."
+            scanoss-py comp vulns \
+              -i scanoss-cyclonedx.json \
+              -o vulnerabilities.json
 
       # ------------------------------------------------------------
       # 17. GENERATE VULNERABILITY SUMMARY CSV
@@ -466,7 +465,8 @@ jobs:
       # ------------------------------------------------------------
       - name: Install Crypto Finder
         run: |
-          pip install crypto-finder
+          go install github.com/scanoss/crypto-finder/cmd/crypto-finder@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
 
       # ------------------------------------------------------------
@@ -477,9 +477,7 @@ jobs:
       # ------------------------------------------------------------
       - name: Check Crypto Finder installation
         run: |
-          which crypto-finder
-          crypto-finder --help | head -30
-
+          crypto-finder --help
 
       # ------------------------------------------------------------
       # 20. RUN CRYPTO FINDER AND GENERATE CBOM
